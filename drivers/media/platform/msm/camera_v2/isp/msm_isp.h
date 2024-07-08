@@ -133,6 +133,15 @@ struct msm_isp_timestamp {
 	struct timeval event_time;
 };
 
+enum msm_isp_irq_states {
+	MSM_ISP_IRQ_STATE_SOF = 0,
+	MSM_ISP_IRQ_STATE_REG_UPD = 1,
+	MSM_ISP_IRQ_STATE_EPOCH = 2,
+	MSM_ISP_IRQ_STATE_BUFDONE = 3,
+	MSM_ISP_IRQ_STATE_EOF = 4,
+	MSM_ISP_IRQ_STATE_MAX = 5
+};
+
 struct msm_vfe_irq_ops {
 	void (*read_irq_status)(struct vfe_device *vfe_dev,
 		uint32_t *irq_status0, uint32_t *irq_status1);
@@ -350,6 +359,7 @@ struct msm_vfe_hardware_info {
 	uint32_t dmi_reg_offset;
 	uint32_t min_ab;
 	uint32_t min_ib;
+	uint32_t intf_states_irq_mask[VFE_SRC_MAX][MSM_ISP_IRQ_STATE_MAX];
 	const char *regulator_names[];
 };
 
@@ -479,6 +489,8 @@ struct msm_vfe_src_info {
 	enum msm_vfe_dual_hw_type dual_hw_type;
 	struct msm_vfe_dual_hw_ms_info dual_hw_ms_info;
 	uint32_t eof_id;
+	uint32_t irq_mask;
+	enum msm_isp_irq_states irq_state;
 };
 
 struct msm_vfe_fetch_engine_info {

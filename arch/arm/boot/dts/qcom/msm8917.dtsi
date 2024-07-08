@@ -19,7 +19,7 @@
 / {
 	model = "Qualcomm Technologies, Inc. MSM8917";
 	compatible = "qcom,msm8917";
-	qcom,msm-id = <303 0x0>, <308 0x0>, <309 0x0>;
+	qcom,msm-id = <303 0x0>,<307 0x0>,<308 0x0>, <309 0x0>;
 	interrupt-parent = <&intc>;
 
 	chosen {
@@ -494,16 +494,16 @@
 			<&dma_blsp1 7 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
 
-		pericom-type-c@1d {
+	/*	pericom-type-c@1d {
 			compatible = "pericom,usb-type-c";
 			reg = <0x1d>;
 			vdd_io-supply = <&pm8917_l5>;
 			interrupt-parent = <&tlmm>;
-			interrupts = <97 2>;	/* TLMM 97, TRIGGER_FALLING */
-			pericom,enb-gpio = <&tlmm 131 0x1>;	/* active low */
+			interrupts = <97 2>;	///TLMM 97, TRIGGER_FALLING 
+			pericom,enb-gpio = <&tlmm 131 0x1>;	//active low 
 			pinctrl-names = "default";
 			pinctrl-0 = <&usbc_int_default>;
-		};
+		};*/
 	};
 
 	i2c_3: i2c@78b7000 { /* BLSP1 QUP3 */
@@ -633,9 +633,13 @@
 		clocks = <&clock_gcc clk_xo_wlan_clk>,
 			 <&clock_gcc clk_rf_clk2>,
 			 <&clock_debug clk_gcc_debug_mux_8937>,
-			 <&clock_gcc clk_wcnss_m_clk>;
+			 <&clock_gcc clk_wcnss_m_clk>,
+			 <&clock_gcc clk_snoc_wcnss_a_clk>;
 
-		clock-names = "xo", "rf_clk", "measure", "wcnss_debug";
+		clock-names = "xo", "rf_clk", "measure", "wcnss_debug",
+				"snoc_wcnss";
+
+		qcom,snoc-wcnss-clock-freq = <200000000>;
 
 		qcom,has-autodetect-xo;
 		qcom,is-pronto-v3;
@@ -1599,6 +1603,11 @@
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_2_out 0 0>;
 
 		memory-region = <&adsp_fw_mem>;
+	};
+
+
+	hq,hq-pwrkey{
+		compatible = "hq,hq-pwrkey";
 	};
 
 	qcom,pronto@a21b000 {

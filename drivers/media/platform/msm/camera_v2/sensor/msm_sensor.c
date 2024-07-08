@@ -17,10 +17,11 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
-
+#include<linux/delay.h> 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
+extern struct otp_struct otp_ptr;
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 {
 	int idx;
@@ -107,6 +108,740 @@ int32_t msm_sensor_free_sensor_data(struct msm_sensor_ctrl_t *s_ctrl)
 	kfree(s_ctrl->sensordata);
 	return 0;
 }
+void delay(unsigned int xms) // xms代表需要延时的毫秒数
+{
+   unsigned int x;
+   for(x=xms;x>0;x--);
+}
+#define DD_PARAM_QTY 		200
+#define WINDOW_WIDTH  		0x0a30 //2608 max effective pixels
+#define WINDOW_HEIGHT 		0x079c //1948
+#define REG_ROM_START 		0x62
+
+#define RG_TYPICAL    		0x0400
+#define BG_TYPICAL			0x0400
+#define INFO_ROM_START		0x01
+#define INFO_WIDTH       	0x08
+#define WB_ROM_START      	0x11
+#define WB_WIDTH          	0x05
+#define GOLDEN_ROM_START  	0x1c
+#define GOLDEN_WIDTH      	0x05
+
+
+
+typedef struct otp_gc5025a
+{
+	uint16_t dd_param_x[DD_PARAM_QTY];
+	uint16_t dd_param_y[DD_PARAM_QTY];
+	uint16_t dd_param_type[DD_PARAM_QTY];
+	uint16_t dd_cnt;
+	uint16_t dd_flag;
+	uint16_t reg_addr[10];	
+	uint16_t reg_value[10];	
+	uint16_t reg_num;
+			
+    uint16_t infowbvalid;
+	uint16_t module_id;
+	uint16_t lens_id;
+	uint16_t year;
+	uint16_t month;
+	uint16_t day;
+	uint16_t rg_gain;
+	uint16_t bg_gain;
+	uint16_t golden_rg;
+	uint16_t golden_bg;
+    uint16_t afvalid;
+    uint16_t af_inf;
+    uint16_t af_macro;	
+}gc5025a_otp;
+static uint8_t gc5025a_otp_read;
+static gc5025a_otp gc5025a_otp_info;
+static void write_cmos_sensor(struct msm_sensor_ctrl_t *s_ctrl,uint8_t addr,uint8_t value)
+{
+	s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client,addr,value,MSM_CAMERA_I2C_BYTE_ADDR);
+}
+static void write_cmos_sensor_u16(struct msm_sensor_ctrl_t *s_ctrl,uint16_t addr,uint8_t value)
+{
+	s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client,addr,value,MSM_CAMERA_I2C_BYTE_DATA);
+}
+int read_cmos_sensor_u16(struct msm_sensor_ctrl_t *s_ctrl,int addr)
+{
+	uint16_t data;
+	s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, addr,&data,MSM_CAMERA_I2C_BYTE_DATA);
+	return data;
+}
+int read_cmos_sensor(struct msm_sensor_ctrl_t *s_ctrl,int addr)
+{
+	uint16_t data;
+	s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, addr,&data,MSM_CAMERA_I2C_BYTE_ADDR);
+	return data;
+}
+static void gc5025a_gcore_initial_otp(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	write_cmos_sensor(s_ctrl,0xf7,0x01);
+	write_cmos_sensor(s_ctrl,0xf8,0x11);
+	write_cmos_sensor(s_ctrl,0xf9,0x00);
+	write_cmos_sensor(s_ctrl,0xfa,0xa0);
+	write_cmos_sensor(s_ctrl,0xfc,0x2e);
+}
+static uint8_t gc5025a_read_otp(struct msm_sensor_ctrl_t *s_ctrl,uint8_t addr)
+{
+	uint8_t value;
+	uint8_t regd4;
+	uint16_t realaddr = addr * 8;
+	regd4 = read_cmos_sensor(s_ctrl,0xd4);
+
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	write_cmos_sensor(s_ctrl,0xd4,(regd4&0xfc)+((realaddr>>8)&0x03));
+	write_cmos_sensor(s_ctrl,0xd5,realaddr&0xff);
+	write_cmos_sensor(s_ctrl,0xf3,0x20);
+	value = read_cmos_sensor(s_ctrl,0xd7);
+
+	return value;
+}
+static void gc5025a_read_otp_group(struct msm_sensor_ctrl_t *s_ctrl,uint8_t addr,uint8_t* buff,int size)
+{
+	uint8_t i;
+	uint8_t regd4;
+	uint16_t realaddr = addr * 8;
+	regd4 = read_cmos_sensor(s_ctrl,0xd4);	
+
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	write_cmos_sensor(s_ctrl,0xd4,(regd4&0xfc)+((realaddr>>8)&0x03));
+	write_cmos_sensor(s_ctrl,0xd5,realaddr);
+	write_cmos_sensor(s_ctrl,0xf3,0x20);
+	write_cmos_sensor(s_ctrl,0xf3,0x88);
+	
+	for(i=0;i<size;i++)
+	{
+		buff[i] = read_cmos_sensor(s_ctrl,0xd7);
+	}
+}
+static void gc5025a_select_page_otp(struct msm_sensor_ctrl_t *s_ctrl,uint8_t otp_select_page)
+{
+	uint8_t page;
+	write_cmos_sensor(s_ctrl,0xfe,0x00);
+	page = read_cmos_sensor(s_ctrl,0xd4);
+
+	switch(otp_select_page)
+	{
+	case 0:
+		page = page & 0xfb;
+		break;
+	case 1:
+		page = page | 0x04;
+		break;
+	default:
+		break;
+	}
+
+	mdelay(5);
+	write_cmos_sensor(s_ctrl,0xd4,page);	
+
+}
+
+static void gc5025a_gcore_enable_otp(struct msm_sensor_ctrl_t *s_ctrl,uint8_t state)
+{
+	uint8_t otp_clk,otp_en;
+	otp_clk = read_cmos_sensor(s_ctrl,0xfa);
+	otp_en= read_cmos_sensor(s_ctrl,0xd4);	
+	if(state)	
+	{ 
+		otp_clk = otp_clk | 0x10;
+		otp_en = otp_en | 0x80;
+		mdelay(5);
+		write_cmos_sensor(s_ctrl,0xfa,otp_clk);// 0xfa[6]:OTP_CLK_en
+		write_cmos_sensor(s_ctrl,0xd4,otp_en);	// 0xd4[7]:OTP_en	
+	
+		pr_err("GC5025A_OTP: Enable OTP!\n");		
+	}
+	else			
+	{
+		otp_en = otp_en & 0x7f;
+		otp_clk = otp_clk & 0xef;
+		mdelay(5);
+		write_cmos_sensor(s_ctrl,0xd4,otp_en);
+		write_cmos_sensor(s_ctrl,0xfa,otp_clk);
+
+		pr_err("GC5025A_OTP: Disable OTP!\n");
+	}
+
+}
+static void gc5025a_gcore_read_otp_info(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	uint8_t flagdd,flag_chipversion;
+	uint8_t i,j,cnt=0;
+	uint16_t check;
+	uint8_t total_number=0; 
+	uint8_t ddtempbuff[50*4];
+	uint8_t ddchecksum;
+
+	uint8_t infowb_flag,af_flag;
+	uint8_t info[14];
+    uint8_t afcode[4];
+    uint8_t InfHigh,MacHigh;
+	//uint8_t wb[5];
+	//uint8_t golden[5];
+
+	memset(&gc5025a_otp_info,0,sizeof(gc5025a_otp));
+
+	/*TODO*/
+	gc5025a_select_page_otp(s_ctrl,0);
+	flagdd = gc5025a_read_otp(s_ctrl,0x00);
+	pr_err("GC5025A_OTP_DD : flag_dd = 0x%x\n",flagdd);
+	flag_chipversion= gc5025a_read_otp(s_ctrl,0x7f);
+
+	//DD
+	switch(flagdd&0x03)
+	{
+	case 0x00:
+		pr_err("GC5025A_OTP_DD is Empty !!\n");
+		gc5025a_otp_info.dd_flag = 0x00;
+		break;
+	case 0x01:	
+		pr_err("GC5025A_OTP_DD is Valid!!\n");
+		total_number = gc5025a_read_otp(s_ctrl,0x01) + gc5025a_read_otp(s_ctrl,0x02);
+		pr_err("GC5025A_OTP : total_number = %d\n",total_number);
+		
+		if (total_number <= 31)
+		{
+			gc5025a_read_otp_group(s_ctrl,0x03, &ddtempbuff[0], total_number * 4);
+		}
+		else
+		{
+			gc5025a_read_otp_group(s_ctrl,0x03, &ddtempbuff[0], 31 * 4);
+			gc5025a_select_page_otp(s_ctrl,1);
+			gc5025a_read_otp_group(s_ctrl,0x29, &ddtempbuff[31 * 4], (total_number - 31) * 4);
+		}
+
+		/*DD check sum*/
+		gc5025a_select_page_otp(s_ctrl,1);
+		ddchecksum = gc5025a_read_otp(s_ctrl,0x61);
+		check = total_number;
+		for(i = 0; i < 4 * total_number; i++)
+		{
+			check += ddtempbuff[i];
+		}
+		if((check % 255 + 1) == ddchecksum)
+		{
+			pr_err("GC5025A_OTP_DD : DD check sum correct! checksum = 0x%x\n", ddchecksum);
+		}
+		else
+		{
+			pr_err("GC5025A_OTP_DD : DD check sum error! otpchecksum = 0x%x, sum = 0x%x\n", ddchecksum, (check % 255 + 1));
+		}
+
+		for(i=0; i<total_number; i++)
+		{
+			pr_err("GC5025A_OTP_DD:index = %d, data[0] = %x , data[1] = %x , data[2] = %x ,data[3] = %x \n",\
+				i, ddtempbuff[4 * i], ddtempbuff[4 * i + 1], ddtempbuff[4 * i + 2], ddtempbuff[4 * i + 3]);
+			
+			if (ddtempbuff[4 * i + 3] & 0x10)
+			{
+				switch (ddtempbuff[4 * i + 3] & 0x0f)
+				{
+				case 3:
+					for (j = 0; j < 4; j++)
+					{
+						gc5025a_otp_info.dd_param_x[cnt] = (((uint16_t)ddtempbuff[4 * i + 1] & 0x0f) << 8) + ddtempbuff[4 * i];
+						gc5025a_otp_info.dd_param_y[cnt] = ((uint16_t)ddtempbuff[4 * i + 2] << 4) + ((ddtempbuff[4 * i + 1] & 0xf0) >> 4) + j;
+						gc5025a_otp_info.dd_param_type[cnt++] = 2;
+					}
+					break;
+				case 4:
+					for (j = 0; j < 2; j++)
+					{
+						gc5025a_otp_info.dd_param_x[cnt] = (((uint16_t)ddtempbuff[4 * i + 1] & 0x0f) << 8) + ddtempbuff[4 * i];
+						gc5025a_otp_info.dd_param_y[cnt] = ((uint16_t)ddtempbuff[4 * i + 2] << 4) + ((ddtempbuff[4 * i + 1] & 0xf0) >> 4) + j;
+						gc5025a_otp_info.dd_param_type[cnt++] = 2;
+					}
+					break;
+				default:
+					gc5025a_otp_info.dd_param_x[cnt] = (((uint16_t)ddtempbuff[4 * i + 1] & 0x0f) << 8) + ddtempbuff[4 * i];
+					gc5025a_otp_info.dd_param_y[cnt] = ((uint16_t)ddtempbuff[4 * i + 2] << 4) + ((ddtempbuff[4 * i + 1] & 0xf0) >> 4);
+					gc5025a_otp_info.dd_param_type[cnt++] = ddtempbuff[4 * i + 3] & 0x0f;
+					break;
+				}
+			}
+			else
+			{
+				pr_err("GC5025A_OTP_DD:check_id[%d] = %x,checkid error!!\n", i, ddtempbuff[4 * i + 3] & 0xf0);
+			}
+		}
+
+		gc5025a_otp_info.dd_cnt = cnt;
+		gc5025a_otp_info.dd_flag = 0x01;
+		break;
+	case 0x02:
+	case 0x03:	
+		pr_err("GC5025A_OTP_DD is Invalid !!\n");
+		gc5025a_otp_info.dd_flag = 0x02;
+		break;
+	default :
+		break;
+	}
+
+/*For Chip Version*/
+	pr_err("GC5025A_OTP_CHIPVESION : flag_chipversion = 0x%x\n",flag_chipversion);
+
+	switch((flag_chipversion>>4)&0x03)
+	{
+	case 0x00:
+		pr_err("GC5025A_OTP_CHIPVERSION is Empty !!\n");
+		break;
+	case 0x01:
+		pr_err("GC5025A_OTP_CHIPVERSION is Valid !!\n");
+		gc5025a_select_page_otp(s_ctrl,1);		
+		i = 0;
+		do{
+			gc5025a_otp_info.reg_addr[i] = gc5025a_read_otp(s_ctrl,REG_ROM_START + i*2 ) ;
+			gc5025a_otp_info.reg_value[i] = gc5025a_read_otp(s_ctrl,REG_ROM_START + i*2 + 1 ) ;
+			pr_err("GC5025A_OTP_CHIPVERSION reg_addr[%d] = 0x%x,reg_value[%d] = 0x%x\n",i,gc5025a_otp_info.reg_addr[i],i,gc5025a_otp_info.reg_value[i]);			
+			i++;			
+		}while((gc5025a_otp_info.reg_addr[i-1]!=0)&&(i<10));
+		gc5025a_otp_info.reg_num = i - 1;
+		break;
+	case 0x02:
+		pr_err("GC5025A_OTP_CHIPVERSION is Invalid !!\n");
+		break;
+	default :
+		break;
+	}
+	
+
+	gc5025a_select_page_otp(s_ctrl,1);
+	infowb_flag = gc5025a_read_otp(s_ctrl,0x00);//read InfoWBFlag
+	af_flag =     gc5025a_read_otp(s_ctrl,0x1d);//read AFFlag
+	pr_err("GC5025A_OTP : infowb_flag = 0x%x , af_flag = 0x%x\n",infowb_flag,af_flag);
+//INFO&WB
+        if(infowb_flag == 0x01) 
+        {   
+            gc5025a_otp_info.infowbvalid = 1;
+            gc5025a_read_otp_group(s_ctrl,1, &info[0], 14);       
+        }
+        else if(infowb_flag == 0x07)
+        {
+            gc5025a_otp_info.infowbvalid = 2;
+            gc5025a_read_otp_group(s_ctrl,15, &info[0], 14);
+        }
+        else
+        {   
+            gc5025a_otp_info.infowbvalid = 0;
+            pr_err("infowb_flag  invalid !!\n");
+        }
+        if (gc5025a_otp_info.infowbvalid) 
+        {   
+            check = 0;
+            for (i=0;i<13;i++)
+            {
+                pr_err("infowb  Group 1 value =%x !!\n",info[i]);
+                check += info[i];
+            }
+            if ((check % 255 + 1) == info[13])
+            {
+                pr_err("AWB checksum is ok !!\n");
+                gc5025a_otp_info.module_id = info[0];
+                gc5025a_otp_info.lens_id = info[1];
+                gc5025a_otp_info.year = info[2];
+                gc5025a_otp_info.month = info[3];
+                gc5025a_otp_info.day = info[4];
+                gc5025a_otp_info.rg_gain = info[5]<<8|info[6];
+                gc5025a_otp_info.bg_gain = info[7]<<8|info[8];
+                gc5025a_otp_info.golden_rg = info[9]<<8|info[10];
+                gc5025a_otp_info.golden_bg = info[11]<<8|info[12];
+            }
+            else
+            {   gc5025a_otp_info.infowbvalid = 0;
+                pr_err("GC5025A_OTP_INFO Check sum %d Error !!\n", info[13]);
+            }
+
+        }
+        if(af_flag == 0x01) 
+        {   
+            gc5025a_otp_info.afvalid = 1;
+            gc5025a_read_otp_group(s_ctrl,30, &afcode[0], 4);       
+        }
+        else if(af_flag == 0x07)
+        {   
+            gc5025a_otp_info.afvalid = 2;
+            gc5025a_read_otp_group(s_ctrl,34, &afcode[0], 4);
+        }
+        else
+        {   
+            gc5025a_otp_info.afvalid = 0;
+            pr_err("af_flag  invalid !!\n");
+        }
+        if (gc5025a_otp_info.afvalid) 
+        {
+            check = 0;
+            for (i=0;i<3;i++)
+            {
+                pr_err("af Group 1 value =%x !!\n",afcode[i]);
+                check += afcode[i];
+            }
+            if ((check % 255 + 1) == afcode[3])
+            {   
+                pr_err("AF checksum is ok !!\n");
+                InfHigh=  afcode[0]>>4;
+                MacHigh = afcode[0]&0x0f;
+                gc5025a_otp_info.af_inf =   InfHigh<<8|afcode[1];
+                gc5025a_otp_info.af_macro = MacHigh<<8|afcode[2];
+            }
+            else
+            {
+                gc5025a_otp_info.afvalid=0;
+                pr_err("GC5025A_OTP_AF Check sum %d Error !!\n", info[3]);
+            }
+               
+        }
+        gc5025a_otp_read = 1;
+	/*print otp information*/
+	pr_err("GC5025A_OTP_INFO:module_id=0x%x\n",gc5025a_otp_info.module_id);
+	pr_err("GC5025A_OTP_INFO:lens_id=0x%x\n",gc5025a_otp_info.lens_id);
+	pr_err("GC5025A_OTP_INFO:date=%d-%d-%d\n",gc5025a_otp_info.year,gc5025a_otp_info.month,gc5025a_otp_info.day);
+	pr_err("GC5025A_OTP_WB:r/g=0x%x\n",gc5025a_otp_info.rg_gain);
+	pr_err("GC5025A_OTP_WB:b/g=0x%x\n",gc5025a_otp_info.bg_gain);
+	pr_err("GC5025A_OTP_GOLDEN:golden_rg=0x%x\n",gc5025a_otp_info.golden_rg);
+	pr_err("GC5025A_OTP_GOLDEN:golden_bg=0x%x\n",gc5025a_otp_info.golden_bg);
+    pr_err("GC5025A_OTP_GOLDEN:af_inf=0x%d\n",gc5025a_otp_info.af_inf);
+	pr_err("GC5025A_OTP_GOLDEN:af_macro=0x%d\n",gc5025a_otp_info.af_macro);
+		
+
+}
+//#define IMAGE_NORMAL_MIRROR
+static void gc5025a_gcore_update_dd(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	uint16_t i=0,j=0,n=0,m=0,s=0,e=0;
+	uint16_t temp_x=0,temp_y=0;
+	uint8_t flag=0;
+	uint8_t temp_type=0;
+	uint8_t temp_val0,temp_val1,temp_val2;
+	//TODO
+	pr_err("%s stoneadd gc5025a_gcore_update_dd \n",__func__);
+	if(0x01 ==gc5025a_otp_info.dd_flag)
+	{
+#if defined(IMAGE_NORMAL_MIRROR)
+	//do nothing
+#elif defined(IMAGE_H_MIRROR)
+	for(i=0; i<gc5025a_otp_info.dd_cnt; i++)
+	{
+		if(gc5025a_otp_info.dd_param_type[i]==0)
+		{	gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i]+1;	}
+		else if(gc5025a_otp_info.dd_param_type[i]==1)
+		{	gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i]-1;	}
+		else
+		{	gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i] ;	}
+	}
+#elif defined(IMAGE_V_MIRROR)
+		for(i=0; i<gc5025a_otp_info.dd_cnt; i++)
+		{	gc5025a_otp_info.dd_param_y[i]= WINDOW_HEIGHT - gc5025a_otp_info.dd_param_y[i] + 1;	}
+
+#elif defined(IMAGE_HV_MIRROR)
+	for(i=0; i<gc5025a_otp_info.dd_cnt; i++)
+		{
+			if(gc5025a_otp_info.dd_param_type[i]==0)
+			{	
+				gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i]+1;
+				gc5025a_otp_info.dd_param_y[i]= WINDOW_HEIGHT - gc5025a_otp_info.dd_param_y[i]+1;
+			}
+			else if(gc5025a_otp_info.dd_param_type[i]==1)
+			{
+				gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i]-1;
+				gc5025a_otp_info.dd_param_y[i]= WINDOW_HEIGHT - gc5025a_otp_info.dd_param_y[i]+1;
+			}
+			else
+			{
+				gc5025a_otp_info.dd_param_x[i]= WINDOW_WIDTH - gc5025a_otp_info.dd_param_x[i] ;
+				gc5025a_otp_info.dd_param_y[i]= WINDOW_HEIGHT - gc5025a_otp_info.dd_param_y[i] + 1;
+			}
+		}
+#endif
+
+		//y
+		for(i=0 ; i< gc5025a_otp_info.dd_cnt-1; i++) 
+		{
+			for(j = i+1; j < gc5025a_otp_info.dd_cnt; j++) 
+			{  
+				if(gc5025a_otp_info.dd_param_y[i] > gc5025a_otp_info.dd_param_y[j])  
+				{  
+					temp_x = gc5025a_otp_info.dd_param_x[i] ; gc5025a_otp_info.dd_param_x[i] = gc5025a_otp_info.dd_param_x[j] ;  gc5025a_otp_info.dd_param_x[j] = temp_x;
+					temp_y = gc5025a_otp_info.dd_param_y[i] ; gc5025a_otp_info.dd_param_y[i] = gc5025a_otp_info.dd_param_y[j] ;  gc5025a_otp_info.dd_param_y[j] = temp_y;
+					temp_type = gc5025a_otp_info.dd_param_type[i] ; gc5025a_otp_info.dd_param_type[i] = gc5025a_otp_info.dd_param_type[j]; gc5025a_otp_info.dd_param_type[j]= temp_type;
+				} 
+			}
+		
+		}
+		
+		//x
+		for(i=0; i<gc5025a_otp_info.dd_cnt; i++)
+		{
+			if(gc5025a_otp_info.dd_param_y[i]==gc5025a_otp_info.dd_param_y[i+1])
+			{
+				s=i++;
+				while((gc5025a_otp_info.dd_param_y[s] == gc5025a_otp_info.dd_param_y[i+1])&&(i<gc5025a_otp_info.dd_cnt-1))
+					i++;
+				e=i;
+
+				for(n=s; n<e; n++)
+				{
+					for(m=n+1; m<e+1; m++)
+					{
+						if(gc5025a_otp_info.dd_param_x[n] > gc5025a_otp_info.dd_param_x[m])
+						{
+							temp_x = gc5025a_otp_info.dd_param_x[n] ; gc5025a_otp_info.dd_param_x[n] = gc5025a_otp_info.dd_param_x[m] ;  gc5025a_otp_info.dd_param_x[m] = temp_x;
+							temp_y = gc5025a_otp_info.dd_param_y[n] ; gc5025a_otp_info.dd_param_y[n] = gc5025a_otp_info.dd_param_y[m] ;  gc5025a_otp_info.dd_param_y[m] = temp_y;
+							temp_type = gc5025a_otp_info.dd_param_type[n] ; gc5025a_otp_info.dd_param_type[n] = gc5025a_otp_info.dd_param_type[m]; gc5025a_otp_info.dd_param_type[m]= temp_type;
+						}
+					}
+				}
+
+			}
+
+		}
+
+		
+		//write SRAM
+		write_cmos_sensor(s_ctrl,0xfe, 0x01);
+		write_cmos_sensor(s_ctrl,0xa8, 0x00);
+		write_cmos_sensor(s_ctrl,0x9d, 0x04);
+		write_cmos_sensor(s_ctrl,0xbe, 0x00);
+		write_cmos_sensor(s_ctrl,0xa9, 0x01);
+
+		for(i=0; i<gc5025a_otp_info.dd_cnt; i++)
+		{
+			temp_val0 = gc5025a_otp_info.dd_param_x[i]& 0x00ff;
+			temp_val1 = (((gc5025a_otp_info.dd_param_y[i])<<4)& 0x00f0) + ((gc5025a_otp_info.dd_param_x[i]>>8)&0X000f);
+			temp_val2 = (gc5025a_otp_info.dd_param_y[i]>>4) & 0xff;
+			write_cmos_sensor(s_ctrl,0xaa,i);
+			write_cmos_sensor(s_ctrl,0xac,temp_val0);
+			write_cmos_sensor(s_ctrl,0xac,temp_val1);
+			write_cmos_sensor(s_ctrl,0xac,temp_val2);
+			while((i < gc5025a_otp_info.dd_cnt - 1) && (gc5025a_otp_info.dd_param_x[i]==gc5025a_otp_info.dd_param_x[i+1]) && (gc5025a_otp_info.dd_param_y[i]==gc5025a_otp_info.dd_param_y[i+1]))
+				{
+					flag = 1;
+					i++;
+				}
+			if(flag)
+				write_cmos_sensor(s_ctrl,0xac,0x02);
+			else
+				write_cmos_sensor(s_ctrl,0xac,gc5025a_otp_info.dd_param_type[i]);
+			
+			pr_err("GC5025A_OTP_GC val0 = 0x%x , val1 = 0x%x , val2 = 0x%x \n",temp_val0,temp_val1,temp_val2);
+			pr_err("GC5025A_OTP_GC x = %d , y = %d \n",((temp_val1&0x0f)<<8) + temp_val0,(temp_val2<<4) + ((temp_val1&0xf0)>>4));	
+		}
+
+		write_cmos_sensor(s_ctrl,0xbe,0x01);
+		write_cmos_sensor(s_ctrl,0xfe,0x00);
+	}
+
+}
+static void gc5025a_gcore_update_wb(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	uint16_t r_gain_current = 0 , g_gain_current = 0 , b_gain_current = 0 , base_gain = 0;
+	uint16_t r_gain = 1024 , g_gain = 1024 , b_gain = 1024 ;
+	uint16_t rg_typical,bg_typical;	 
+	pr_err("%s stoneadd gc5025a_gcore_update_wb \n",__func__);
+        if (gc5025a_otp_info.infowbvalid) 
+        {
+        rg_typical=gc5025a_otp_info.golden_rg;
+		bg_typical=gc5025a_otp_info.golden_bg;
+
+		pr_err("GC5025A_OTP_UPDATE_AWB:rg_typical = 0x%x , bg_typical = 0x%x\n",rg_typical,bg_typical);
+		r_gain_current = 1024 * rg_typical/gc5025a_otp_info.rg_gain;
+		b_gain_current = 1024 * bg_typical/gc5025a_otp_info.bg_gain;
+		g_gain_current = 1024;
+
+		base_gain = (r_gain_current<b_gain_current) ? r_gain_current : b_gain_current;
+		base_gain = (base_gain<g_gain_current) ? base_gain : g_gain_current;
+		pr_err("GC5025A_OTP_UPDATE_AWB:r_gain_current = 0x%x , b_gain_current = 0x%x , base_gain = 0x%x \n",r_gain_current,b_gain_current,base_gain);
+
+		r_gain = 0x400 * r_gain_current / base_gain;
+		g_gain = 0x400 * g_gain_current / base_gain;
+		b_gain = 0x400 * b_gain_current / base_gain;
+		pr_err("GC5025A_OTP_UPDATE_AWB:r_gain = 0x%x , g_gain = 0x%x , b_gain = 0x%x \n",r_gain,g_gain,b_gain);
+
+		//TODO
+		write_cmos_sensor(s_ctrl,0xfe,0x00);
+		write_cmos_sensor(s_ctrl,0xc6,g_gain>>3);
+		write_cmos_sensor(s_ctrl,0xc7,r_gain>>3);
+		write_cmos_sensor(s_ctrl,0xc8,b_gain>>3);
+		write_cmos_sensor(s_ctrl,0xc9,g_gain>>3);
+		write_cmos_sensor(s_ctrl,0xc4,((g_gain&0x07) << 4) + (r_gain&0x07));
+		write_cmos_sensor(s_ctrl,0xc5,((b_gain&0x07) << 4) + (g_gain&0x07));
+
+        }
+
+}
+
+static void gc5025a_gcore_identify_otp(struct msm_sensor_ctrl_t *s_ctrl)
+{	
+    pr_err("%s stoneadd gc5025a_gcore_identify_otp \n",__func__);
+	gc5025a_gcore_initial_otp(s_ctrl);
+	gc5025a_gcore_enable_otp(s_ctrl,1);
+	gc5025a_gcore_read_otp_info(s_ctrl);
+	gc5025a_gcore_enable_otp(s_ctrl,0);
+}
+
+
+int read_otp(struct msm_sensor_ctrl_t *s_ctrl,struct otp_struct *otp_ptr)
+{
+    int addr,i,af_addr;
+    uint16_t otp_flag;
+    uint16_t data1,data2,temp;
+    int err;
+         s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x0100,0x01,MSM_CAMERA_I2C_BYTE_ADDR);
+       err= s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d84,0xC0,MSM_CAMERA_I2C_BYTE_ADDR);
+        s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d88,0x70,MSM_CAMERA_I2C_BYTE_ADDR);
+        s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d89,0x0C,MSM_CAMERA_I2C_BYTE_ADDR);
+        s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d8A,0x70,MSM_CAMERA_I2C_BYTE_ADDR);
+        s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d8B,0x1B,MSM_CAMERA_I2C_BYTE_ADDR);
+         s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x3d81,0x01,MSM_CAMERA_I2C_BYTE_ADDR);
+       delay(5);
+       err=s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                s_ctrl->sensor_i2c_client, 0x700c,
+                               &otp_flag, MSM_CAMERA_I2C_BYTE_ADDR);
+
+        addr = 0;
+       if((otp_flag & 0xc0) == 0x40) {
+       addr = 0x700D; // base address of WB Calibration group 1
+       }
+       else if((otp_flag & 0x0c) == 0x04) {
+       addr = 0x7014; // base address of WB Calibration group 2
+       }
+       printk("SP_EEPROM====OTP_FLAG %x\n",otp_flag);
+       /*af addr*/
+       if((otp_flag & 0x30)==0x10){
+       af_addr=0x7011;
+       }
+       else if((otp_flag&0x03)==0x01){
+       af_addr=0x7018;
+       } 
+                                  
+       if(addr != 0) {
+           (*otp_ptr).flag |= 0x80;
+           s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                    s_ctrl->sensor_i2c_client, addr,
+                                   &((*otp_ptr).module_integrator_id),MSM_CAMERA_I2C_BYTE_ADDR);
+           s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                    s_ctrl->sensor_i2c_client, addr+3,
+                                   &temp,MSM_CAMERA_I2C_BYTE_ADDR);
+           s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                    s_ctrl->sensor_i2c_client, addr+1,
+                                   &data1,MSM_CAMERA_I2C_BYTE_ADDR);
+
+            (*otp_ptr).rg_ratio = (data1<<2) + ((temp>>6) & 0x03);
+           s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                    s_ctrl->sensor_i2c_client, addr+2,
+                                   &data2,MSM_CAMERA_I2C_BYTE_ADDR);
+           (*otp_ptr).bg_ratio = (data2<<2) + ((temp>>4) & 0x03);
+
+           pr_err("%s,%d,r = %d,b = %d",__func__,__LINE__,otp_ptr->rg_ratio,otp_ptr->rg_ratio);
+       }
+       else {
+	       (*otp_ptr).flag = 0x00; // not info in OTP
+	       (*otp_ptr).module_integrator_id = 0;
+	       (*otp_ptr).lens_id = 0;
+	       (*otp_ptr).rg_ratio = 0;
+	       (*otp_ptr).bg_ratio = 0;
+       }
+       for(i=0x700C;i<=0x701A;i++) {
+           // OV5695_write_i2c(i,0); // clear OTP buffer, recommended use continuous write to accelarate
+          s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                     s_ctrl->sensor_i2c_client,i,0,MSM_CAMERA_I2C_BYTE_ADDR);
+       }
+        s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x0100,0x00,MSM_CAMERA_I2C_BYTE_ADDR);
+
+        otp_ptr->enable = 1;
+       return (*otp_ptr).flag;
+}
+
+
+int apply_otp(struct msm_sensor_ctrl_t *s_ctrl,struct otp_struct *otp_ptr)
+{
+    int rg, bg, R_gain, G_gain, B_gain, Base_gain;
+    int RG_Ratio_Typical=269;
+    int BG_Ratio_Typical=348;
+    uint16_t err;
+    //printk("sbing=================flag=%u\n",(*otp_ptr).flag);
+    //printk("sbing=================rg_ratio=%u\n",(*otp_ptr).rg_ratio);
+    //printk("sbing=================bg_ratio=%u\n",(*otp_ptr).bg_ratio);
+    // apply OTP WB Calibration
+    if ((*otp_ptr).flag & 0x80) {
+    rg = (*otp_ptr).rg_ratio;
+    bg = (*otp_ptr).bg_ratio;
+    }
+    //calculate G gain
+    R_gain = (RG_Ratio_Typical*1000) / rg;
+    B_gain = (BG_Ratio_Typical*1000) / bg;
+    G_gain = 1000;
+
+	pr_err("%s,%d,rg = %d,bg = %d,rg_golden = %d,bg_golden = %d",
+		__func__,__LINE__,rg,bg,RG_Ratio_Typical,BG_Ratio_Typical);
+	
+    if (R_gain < 1000 || B_gain < 1000)
+    {
+       if (R_gain < B_gain)
+       Base_gain = R_gain;
+       else
+       Base_gain = B_gain;
+    }
+    else
+    {
+       Base_gain = G_gain;
+    }
+   R_gain = 0x400 * R_gain / (Base_gain);
+   B_gain = 0x400 * B_gain / (Base_gain);
+   G_gain = 0x400 * G_gain / (Base_gain);
+   //printk("sbing==========r_gain=%x\n",R_gain);
+   //printk("sbing==========b_gain=%x\n",B_gain);
+   //printk("sbing==========g_gain=%x\n",G_gain);
+   pr_err("%s,%d,R_gain = %d,B_gain = %d,G_gain = %d",__func__,__LINE__,R_gain,B_gain,G_gain);
+   // update sensor WB gain
+   if (R_gain>0x400) {
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x5019,R_gain>>8,MSM_CAMERA_I2C_BYTE_ADDR);
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x501a,R_gain & 0x00ff,MSM_CAMERA_I2C_BYTE_ADDR);
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+                                s_ctrl->sensor_i2c_client, 0x501a,
+                               &err,MSM_CAMERA_I2C_BYTE_ADDR);
+    printk("SP_EEPROM,%s,%d,0x501a = %d\n",__func__,__LINE__,err);
+
+ /*  OV5695_write_i2c(0x5019, R_gain>>8);
+   OV5695_write_i2c(0x501a, R_gain & 0x00ff);*/
+  }
+   if (G_gain>0x400) {
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x501b,G_gain>>8,MSM_CAMERA_I2C_BYTE_ADDR);
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x501c,G_gain & 0x00ff,MSM_CAMERA_I2C_BYTE_ADDR);
+ /*  OV5695_write_i2c(0x501b, G_gain>>8);
+   OV5695_write_i2c(0x501c, G_gain & 0x00ff);*/
+ }
+   if (B_gain>0x400) {
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x501d, B_gain>>8,MSM_CAMERA_I2C_BYTE_ADDR);
+   s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(
+                                        s_ctrl->sensor_i2c_client,0x501e,B_gain & 0x00ff,MSM_CAMERA_I2C_BYTE_ADDR);
+
+  /* OV5695_write_i2c(0x501d, B_gain>>8);*/
+ }
+
+  return (*otp_ptr).flag;
+}
+#define IICWRITE_BYTE(addr,data)    s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client,addr, data,MSM_CAMERA_I2C_BYTE_DATA);
+#define IICREAD_BYTE(addr,data)    s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, addr,data, MSM_CAMERA_I2C_BYTE_DATA);
 
 int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -207,11 +942,15 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	}
 	return sensor_id;
 }
-
+#define OTP_START 0x0401
+#define OTP_END 0x04b1
+uint8_t otp_data[180];
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
 	uint16_t chipid = 0;
+  
+    
 	struct msm_camera_i2c_client *sensor_i2c_client;
 	struct msm_camera_slave_info *slave_info;
 	const char *sensor_name;
@@ -247,6 +986,24 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
+    else
+    {
+        if (chipid == 0x5695 && !otp_ptr.enable)
+        {
+            read_otp(s_ctrl,&otp_ptr);
+        }
+        else if (chipid == 0x5025&& (!gc5025a_otp_read)) 
+		{
+			pr_err("%s stoneadd chip id %x  match!\n",__func__, chipid);
+			gc5025a_gcore_identify_otp(s_ctrl);
+        }
+        else if (chipid == 0x0556) 
+        {
+         pr_err("%s stoneadd chip id HI556 %x  match!\n",__func__, chipid);
+            
+
+        }
+    }
 	return rc;
 }
 
@@ -349,7 +1106,7 @@ long msm_sensor_subdev_fops_ioctl(struct file *file,
 {
 	return video_usercopy(file, cmd, arg, msm_sensor_subdev_do_ioctl);
 }
-
+static uint8_t hi556_otpread;
 static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	void __user *argp)
 {
@@ -415,7 +1172,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		struct msm_camera_i2c_reg_setting32 conf_array32;
 		struct msm_camera_i2c_reg_setting conf_array;
 		struct msm_camera_i2c_reg_array *reg_setting = NULL;
-
 		if (s_ctrl->is_csid_tg_mode)
 			goto DONE;
 
@@ -484,7 +1240,77 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 				i2c_write_table_sync(s_ctrl->sensor_i2c_client,
 				&conf_array);
 
-		kfree(reg_setting);
+		if (reg_setting[conf_array.size - 1].reg_addr == 0x4009 && !strcmp(s_ctrl->sensordata->sensor_name,"ov5695_qtech"))
+		{
+			uint16_t value = 0;
+			apply_otp(s_ctrl,&otp_ptr);
+			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(
+				s_ctrl->sensor_i2c_client,0x501a,
+				&value, MSM_CAMERA_I2C_BYTE_DATA);
+			pr_err("SP_EEPROM,%s,%d,0x501a = %d\n",__func__,__LINE__,value);
+
+		}
+        pr_err("stoneadd writei2c size = %d\n",conf_array.size);
+		if (!strcmp(s_ctrl->sensordata->sensor_name, "gc5025") && conf_array.size == 115)
+		{
+			pr_err("stoneadd now apply dd& wb to sensor \n");
+            if (gc5025a_otp_read ==1) 
+			{
+				gc5025a_gcore_update_dd(s_ctrl);
+				gc5025a_gcore_update_wb(s_ctrl);
+            }
+			else
+			{
+				pr_err("stoneadd  dd& wb otp not ready \n");
+			}
+
+
+		}
+        else if ((strcmp(s_ctrl->sensordata->sensor_name, "hi556") ==0)&& conf_array.size == 222)
+        {
+            if (!hi556_otpread) 
+            {
+
+            
+            pr_err("%s stoneadd chip id HI556  match!\n", __func__);
+            write_cmos_sensor_u16(s_ctrl,0x0a02, 0x01); //Fast sleep on
+            write_cmos_sensor_u16(s_ctrl,0x0a00, 0x00); // stand by on
+            msleep(10);
+            write_cmos_sensor_u16(s_ctrl,0x0f02, 0x00); // pll disable
+            write_cmos_sensor_u16(s_ctrl,0x011a, 0x01); // CP TRIM_H
+            write_cmos_sensor_u16(s_ctrl,0x011b, 0x09); // IPGM TRIM_H
+            write_cmos_sensor_u16(s_ctrl,0x0d04, 0x01); // Fsync(OTP busy) Output Enable
+            write_cmos_sensor_u16(s_ctrl,0x0d00, 0x07); // Fsync(OTP busy) Output Drivability
+            write_cmos_sensor_u16(s_ctrl,0x003e, 0x10); // OTP R/W mode
+            write_cmos_sensor_u16(s_ctrl,0x0a00, 0x01); // stand by off
+
+
+
+            pr_err("stoneadd otp_data:\n");
+            write_cmos_sensor_u16(s_ctrl,0x10a, ((OTP_START + i) >> 8) & 0xff); // start address H
+            write_cmos_sensor_u16(s_ctrl,0x10b, (OTP_START + i) & 0xff); // start address L
+            write_cmos_sensor_u16(s_ctrl,0x102, 0x01); // single read
+            for (i = 0; i <= (OTP_END - OTP_START); i++) 
+            {
+                otp_data[i] = read_cmos_sensor_u16(s_ctrl,0x108);
+                
+            }
+            for (i = 0; i <= (OTP_END - OTP_START); i++) 
+            {
+               pr_err("otp_data:0x%x\n",otp_data[i]);
+            }
+            hi556_otpread = 1;
+            }
+            else
+            {
+                pr_err("hi556 OTP already read\n");
+            }
+           // 
+          
+
+        }
+        kfree(reg_setting);
+
 		break;
 	}
 	case CFG_SLAVE_READ_I2C: {
@@ -565,7 +1391,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		struct msm_camera_i2c_reg_array *reg_setting = NULL;
 		uint16_t orig_slave_addr = 0, write_slave_addr = 0;
 		uint16_t orig_addr_type = 0, write_addr_type = 0;
-
 		if (s_ctrl->is_csid_tg_mode)
 			goto DONE;
 
@@ -671,7 +1496,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		struct msm_camera_i2c_seq_reg_setting32 conf_array32;
 		struct msm_camera_i2c_seq_reg_setting conf_array;
 		struct msm_camera_i2c_seq_reg_array *reg_setting = NULL;
-
 		if (s_ctrl->is_csid_tg_mode)
 			goto DONE;
 
@@ -730,13 +1554,13 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_POWER_UP:
 		if (s_ctrl->is_csid_tg_mode)
 			goto DONE;
-
 		if (s_ctrl->sensor_state != MSM_SENSOR_POWER_DOWN) {
 			pr_err("%s:%d failed: invalid state %d\n", __func__,
 				__LINE__, s_ctrl->sensor_state);
 			rc = -EFAULT;
 			break;
 		}
+
 		if (s_ctrl->func_tbl->sensor_power_up) {
 			if (s_ctrl->sensordata->misc_regulator)
 				msm_sensor_misc_regulator(s_ctrl, 1);
@@ -788,7 +1612,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		struct msm_camera_i2c_reg_setting *stop_setting =
 			&s_ctrl->stop_setting;
 		struct msm_camera_i2c_reg_array *reg_setting = NULL;
-
 		if (s_ctrl->is_csid_tg_mode)
 			goto DONE;
 
@@ -835,7 +1658,6 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 
 	case CFG_SET_I2C_SYNC_PARAM: {
 		struct msm_camera_cci_ctrl cci_ctrl;
-
 		s_ctrl->sensor_i2c_client->cci_client->cid =
 			cdata->cfg.sensor_i2c_sync_params.cid;
 		s_ctrl->sensor_i2c_client->cci_client->id_map =

@@ -239,7 +239,6 @@ void msm_set_restart_mode(int mode)
 	restart_mode = mode;
 }
 EXPORT_SYMBOL(msm_set_restart_mode);
-
 /*
  * Force the SPMI PMIC arbiter to shutdown so that no more SPMI transactions
  * are sent from the MSM to the PMIC.  This is required in order to avoid an
@@ -407,6 +406,13 @@ static void do_msm_poweroff(void)
 	pr_err("Powering off has failed\n");
 	return;
 }
+
+void export_do_msm_poweroff(void)
+{
+	do_msm_poweroff();
+}
+EXPORT_SYMBOL( export_do_msm_poweroff);
+
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 static ssize_t attr_show(struct kobject *kobj, struct attribute *attr,

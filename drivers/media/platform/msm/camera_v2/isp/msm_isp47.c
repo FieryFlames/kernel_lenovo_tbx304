@@ -1467,6 +1467,7 @@ void msm_vfe47_update_camif_state(struct vfe_device *vfe_dev,
 {
 	uint32_t val;
 	bool bus_en, vfe_en;
+	uint8_t j = 0;
 
 	if (update_state == NO_UPDATE)
 		return;
@@ -1500,6 +1501,14 @@ void msm_vfe47_update_camif_state(struct vfe_device *vfe_dev,
 		/* configure EPOCH0 for 20 lines */
 		msm_camera_io_w_mb(0x140000, vfe_dev->vfe_base + 0x4A0);
 		vfe_dev->axi_data.src_info[VFE_PIX_0].active = 1;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_state =
+			MSM_ISP_IRQ_STATE_SOF;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask = 0;
+		for (j = 0; j < MSM_ISP_IRQ_STATE_MAX; j++) {
+			vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask |=
+				vfe_dev->hw_info->
+				intf_states_irq_mask[VFE_PIX_0][j];
+		}
 		/* testgen GO*/
 		if (vfe_dev->axi_data.src_info[VFE_PIX_0].input_mux == TESTGEN)
 			msm_camera_io_w(1, vfe_dev->vfe_base + 0xC58);
@@ -1514,6 +1523,7 @@ void msm_vfe47_update_camif_state(struct vfe_device *vfe_dev,
 		msm_camera_io_w_mb((update_state == DISABLE_CAMIF ? 0x0 : 0x6),
 				vfe_dev->vfe_base + 0x478);
 		vfe_dev->axi_data.src_info[VFE_PIX_0].active = 0;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask = 0;
 		/* testgen OFF*/
 		if (vfe_dev->axi_data.src_info[VFE_PIX_0].input_mux == TESTGEN)
 			msm_camera_io_w(1 << 1, vfe_dev->vfe_base + 0xC58);
@@ -2831,6 +2841,10 @@ struct msm_vfe_hardware_info vfe47_hw_info = {
 	.axi_hw_info = &msm_vfe47_axi_hw_info,
 	.stats_hw_info = &msm_vfe47_stats_hw_info,
 	.regulator_names = {"vdd", "camss-vdd", "mmagic-vdd"},
+	.intf_states_irq_mask = { { 0x1, 0x10, 0xC, 0x60FF8000, 0x2 },
+				{ 0x0, 0x20, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x40, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x80, 0x0, 0x0, 0x0 }, }
 };
 EXPORT_SYMBOL(vfe47_hw_info);
 

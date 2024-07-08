@@ -320,6 +320,8 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 					pr_err("%s: unable to set dir for en gpio\n",
 						__func__);
 					goto exit;
+				} else {
+					msleep(20);
 				}
 			}
 

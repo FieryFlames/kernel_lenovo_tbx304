@@ -18,6 +18,7 @@
 #include <linux/stat.h>
 
 #include "power_supply.h"
+ int g_chargerState;
 
 /*
  * This is because the name "current" breaks the device attr macro.
@@ -253,6 +254,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(enable_jeita_detection),
 	POWER_SUPPLY_ATTR(battery_info),
 	POWER_SUPPLY_ATTR(battery_info_id),
+	POWER_SUPPLY_ATTR(usb_id_resistance),
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_ATTR(charge_counter_ext),
 	/* Properties of type `const char *' */
@@ -383,6 +385,21 @@ int power_supply_uevent(struct device *dev, struct kobj_uevent_env *env)
 		dev_dbg(dev, "prop %s=%s\n", attrname, prop_buf);
 
 		ret = add_uevent_var(env, "POWER_SUPPLY_%s=%s", attrname, prop_buf);
+        #if 1
+                if(0==strcmp(attrname,"STATUS"))
+                   {
+               //       printk("psy====POWER_SUPPLY_%s=%s\n", attrname, prop_buf);
+                      if((0==strcmp(prop_buf,"Charging")) ||(0==strcmp(prop_buf,"Full")))
+                        {
+                            g_chargerState =1;
+                        }
+                      else
+                      {
+                          g_chargerState =0;
+                        }
+                    }
+#endif
+
 		kfree(attrname);
 		if (ret)
 			goto out;

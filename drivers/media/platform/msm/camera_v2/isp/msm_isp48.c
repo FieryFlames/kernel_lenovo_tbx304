@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -325,6 +325,10 @@ struct msm_vfe_hardware_info vfe48_hw_info = {
 	.dmi_reg_offset = 0xC2C,
 	.axi_hw_info = &msm_vfe48_axi_hw_info,
 	.stats_hw_info = &msm_vfe48_stats_hw_info,
+	.intf_states_irq_mask = { { 0x1, 0x10, 0xC, 0x60FF8000, 0x2 },
+				{ 0x0, 0x20, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x40, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x80, 0x0, 0x0, 0x0 }, }
 };
 EXPORT_SYMBOL(vfe48_hw_info);
 

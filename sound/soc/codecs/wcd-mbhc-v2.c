@@ -25,9 +25,8 @@
 #include <linux/input.h>
 #include <linux/firmware.h>
 #include <linux/completion.h>
-#include <sound/soc.h>
-#include <sound/jack.h>
-#include "wcd-mbhc-v2.h"
+#include <linux/switch.h>
+#include "msm8x16-wcd.h"
 #include "wcdcal-hwdep.h"
 
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
@@ -43,7 +42,7 @@
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
-#define GND_MIC_SWAP_THRESHOLD 4
+#define GND_MIC_SWAP_THRESHOLD 2
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
 #define HS_VREF_MIN_VAL 1400
 #define FW_READ_ATTEMPTS 15
@@ -55,7 +54,11 @@
 #define ANC_DETECT_RETRY_CNT 7
 #define WCD_MBHC_SPL_HS_CNT  1
 
+#define US_EU_PULL_DOWN  0
+
 static int det_extn_cable_en;
+static int 	is_report=0;
+
 module_param(det_extn_cable_en, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(det_extn_cable_en, "enable/disable extn cable detect");
@@ -67,9 +70,15 @@ enum wcd_mbhc_cs_mb_en_flag {
 	WCD_MBHC_EN_NONE,
 };
 
+static struct switch_dev accdet_data;
 static void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 				struct snd_soc_jack *jack, int status, int mask)
 {
+	if(!status && (jack->jack->type&WCD_MBHC_JACK_MASK)){
+		switch_set_state(&accdet_data,0);
+	}else if(jack->jack->type&WCD_MBHC_JACK_MASK){
+		switch_set_state(&accdet_data,status);
+	}
 	snd_soc_jack_report(jack, status, mask);
 }
 
@@ -350,12 +359,15 @@ out_micb_en:
 			hphlocp_off_report(mbhc, SND_JACK_OC_HPHL);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHL, &mbhc->event_state);
 		/* check if micbias is enabled */
-		if (micbias2)
-			/* Disable cs, pullup & enable micbias */
-			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
-		else
-			/* Disable micbias, pullup & enable cs */
-			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_CS);
+		if(!micbias1)
+		{
+			if (micbias2)
+				/* Disable cs, pullup & enable micbias */
+				wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
+			else
+				/* Disable micbias, pullup & enable cs */
+				wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_CS);
+		}
 		mutex_unlock(&mbhc->hphl_pa_lock);
 		break;
 	case WCD_EVENT_PRE_HPHR_PA_OFF:
@@ -367,12 +379,15 @@ out_micb_en:
 			hphrocp_off_report(mbhc, SND_JACK_OC_HPHR);
 		clear_bit(WCD_MBHC_EVENT_PA_HPHR, &mbhc->event_state);
 		/* check if micbias is enabled */
-		if (micbias2)
-			/* Disable cs, pullup & enable micbias */
-			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
-		else
-			/* Disable micbias, pullup & enable cs */
-			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_CS);
+		if(!micbias1)
+		{
+			if (micbias2)
+				/* Disable cs, pullup & enable micbias */
+				wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
+			else
+				/* Disable micbias, pullup & enable cs */
+				wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_CS);
+		}
 		mutex_unlock(&mbhc->hphr_pa_lock);
 		break;
 	case WCD_EVENT_PRE_HPHL_PA_ON:
@@ -550,6 +565,7 @@ static void wcd_mbhc_hs_elec_irq(struct wcd_mbhc *mbhc, int irq_type,
 	}
 }
 
+extern int us_eu_pull_gpio;  //lsn_add
 static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 				enum snd_jack_types jack_type)
 {
@@ -604,6 +620,7 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		hphrocp_off_report(mbhc, SND_JACK_OC_HPHR);
 		hphlocp_off_report(mbhc, SND_JACK_OC_HPHL);
 		mbhc->current_plug = MBHC_PLUG_TYPE_NONE;
+		gpio_set_value_cansleep(us_eu_pull_gpio, US_EU_PULL_DOWN);
 	} else {
 		/*
 		 * Report removal of current jack type.
@@ -819,9 +836,10 @@ static void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 
 	if (mbhc->current_plug == plug_type) {
 		pr_debug("%s: cable already reported, exit\n", __func__);
+		is_report=1;
 		goto exit;
 	}
-
+	is_report=1;
 	if (plug_type == MBHC_PLUG_TYPE_HEADPHONE) {
 		/*
 		 * Nothing was reported previously
@@ -1135,6 +1153,53 @@ exit:
 	return spl_hs;
 }
 
+static int enable_spk_ext_pa(struct snd_soc_codec *codec, int type)
+{
+	struct snd_soc_card *card = codec->component.card;
+	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	int spe_pa_status=0;
+	if(type==2)
+		{
+			spe_pa_status=gpio_get_value(pdata->spk_ext_pa_gpio);
+			return spe_pa_status;
+		}
+	if (type==1) {
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	} else {
+		gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+		gpio_direction_output(pdata->spk_ext_pa1_gpio, 0);
+	}
+	return 0;
+}
+
+
+int  us_en_save_flag=0;
+
+int flag_us_en(struct snd_soc_codec *codec,int us_en_save_flag_tmp)
+{
+	struct snd_soc_card *card = codec->component.card;
+	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+
+	pr_debug("%s: configure gpios for US_EU\n", __func__);
+
+	if (!gpio_is_valid(pdata->us_euro_gpio)) {
+		pr_err("%s: Invalid gpio: %d", __func__, pdata->us_euro_gpio);
+		return false;
+	}
+	gpio_set_value_cansleep(pdata->us_euro_gpio, us_en_save_flag_tmp);
+	return true;
+}
+
+
 static void wcd_correct_swch_plug(struct work_struct *work)
 {
 	struct wcd_mbhc *mbhc;
@@ -1152,7 +1217,9 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	int rc, spl_hs_count = 0;
 	int cross_conn;
 	int try = 0;
-
+	int try_tmp=0;
+	int ear_pa_status=0;
+	int spe_pa_status=0;
 	pr_debug("%s: enter\n", __func__);
 
 	mbhc = container_of(work, struct wcd_mbhc, correct_plug_swch);
@@ -1165,7 +1232,24 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	 * is handled with ref-counts by individual codec drivers, there is
 	 * no need to enabale micbias/pullup here
 	 */
-
+	is_report = 0;
+	spe_pa_status=enable_spk_ext_pa(codec,2);
+	if (mbhc->mbhc_cb->hph_pa_on_status)
+		{
+			if (mbhc->mbhc_cb->hph_pa_on_status(mbhc->codec))
+			{
+				ear_pa_status=1;
+			}
+			else
+			{
+				ear_pa_status=0;
+			}
+		}
+	enable_spk_ext_pa(codec,0);
+	wcd_mbhc_set_and_turnoff_hph_padac(mbhc);
+	msleep(300);
+		
+	flag_us_en(codec,us_en_save_flag);
 	wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
 
 
@@ -1342,10 +1426,12 @@ correct_plug_type:
 
 		WCD_MBHC_REG_READ(WCD_MBHC_HPHL_SCHMT_RESULT, hphl_sch);
 		WCD_MBHC_REG_READ(WCD_MBHC_MIC_SCHMT_RESULT, mic_sch);
+		pr_debug("%s:liu hphl_sch=%d,mic_sch=%d,hs_comp_res=%d,plug_type=%d\n", __func__,hphl_sch,mic_sch,hs_comp_res,plug_type);
 		if (hs_comp_res && !(hphl_sch || mic_sch)) {
 			pr_debug("%s: cable is extension cable\n", __func__);
 			plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
 			wrk_complete = true;
+			try_tmp++;
 		} else {
 			pr_debug("%s: cable might be headset: %d\n", __func__,
 					plug_type);
@@ -1371,6 +1457,16 @@ correct_plug_type:
 				}
 			}
 			wrk_complete = false;
+		}
+		if ((plug_type == MBHC_PLUG_TYPE_HIGH_HPH) && (try_tmp==3))
+		{
+			pr_debug("%s:liu MBHC_PLUG_TYPE_HIGH_HPH\n", __func__);
+			if (wcd_is_special_headset(mbhc)) {
+				pr_debug("%s: Special headset found %d\n",
+						__func__, plug_type);
+				plug_type = MBHC_PLUG_TYPE_HEADSET;
+				goto report;
+			}
 		}
 	}
 	if (!wrk_complete && mbhc->btn_press_intr) {
@@ -1447,6 +1543,19 @@ exit:
 		mbhc->mbhc_cb->hph_pull_down_ctrl(codec, true);
 
 	mbhc->mbhc_cb->lock_sleep(mbhc, false);
+	if(is_report==0||(wcd_swch_level_remove(mbhc)))
+		{
+			enable_spk_ext_pa(codec,spe_pa_status);
+			if(ear_pa_status==0)
+				{
+					wcd_mbhc_set_and_turnoff_hph_padac(mbhc);
+				}
+			else
+				{
+					wcd_mbhc_clr_and_turnon_hph_padac(mbhc);
+				}
+		}
+	
 	pr_debug("%s: leave\n", __func__);
 }
 
@@ -2364,7 +2473,15 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	const char *hph_switch = "qcom,msm-mbhc-hphl-swh";
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 
-	pr_debug("%s: enter\n", __func__);
+	accdet_data.name = "h2w";
+	accdet_data.index = 0;
+	accdet_data.state = 0;
+	ret = switch_dev_register(&accdet_data);
+	if (ret) {
+		dev_err(card->dev,"[Accdet]switch_dev_register returned:%d!\n", ret);
+		return -1;
+
+	}
 
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {
@@ -2562,6 +2679,7 @@ err_mbhc_sw_irq:
 		mbhc->mbhc_cb->register_notifier(codec, &mbhc->nblock, false);
 	mutex_destroy(&mbhc->codec_resource_lock);
 err:
+	switch_dev_unregister(&accdet_data);
 	pr_debug("%s: leave ret %d\n", __func__, ret);
 	return ret;
 }
@@ -2583,6 +2701,7 @@ void wcd_mbhc_deinit(struct wcd_mbhc *mbhc)
 	if (mbhc->mbhc_cb && mbhc->mbhc_cb->register_notifier)
 		mbhc->mbhc_cb->register_notifier(codec, &mbhc->nblock, false);
 	mutex_destroy(&mbhc->codec_resource_lock);
+	switch_dev_unregister(&accdet_data);
 }
 EXPORT_SYMBOL(wcd_mbhc_deinit);
 

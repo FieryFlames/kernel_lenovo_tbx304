@@ -4072,7 +4072,6 @@ void wcd_imped_config(struct snd_soc_codec *codec,
 				snd_soc_codec_get_drvdata(codec);
 
 	value = wcd_get_impedance_value(imped);
-
 	if (value < wcd_imped_val[0]) {
 		pr_debug("%s, detected impedance is less than 4 Ohm\n",
 			 __func__);

@@ -456,7 +456,7 @@ static void warn_slowpath_common(const char *file, int line, void *caller,
 		vprintk(args->fmt, args->args);
 
 	print_modules();
-	dump_stack();
+	//dump_stack();
 	print_oops_end_marker();
 	/* Just a warning, don't kill lockdep. */
 	add_taint(taint, LOCKDEP_STILL_OK);

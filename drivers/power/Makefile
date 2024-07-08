@@ -63,6 +63,7 @@ obj-$(CONFIG_SMB349_DUAL_CHARGER)   += smb349-dual-charger.o
 obj-$(CONFIG_SMB1351_USB_CHARGER) += smb1351-charger.o
 obj-$(CONFIG_SMB350_CHARGER)   += smb350_charger.o
 obj-$(CONFIG_SMB135X_CHARGER)   += smb135x-charger.o
+obj-$(CONFIG_COULO_METER)	+= couloMeter.o
 obj-$(CONFIG_SMB1360_CHARGER_FG) += smb1360-charger-fg.o
 obj-$(CONFIG_SMB138X_CHARGER)	+= smb138x-charger.o pmic-voter.o
 obj-$(CONFIG_SMB358_CHARGER)	+= smb358-charger.o

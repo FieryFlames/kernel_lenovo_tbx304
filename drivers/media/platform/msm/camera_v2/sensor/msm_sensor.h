@@ -63,6 +63,15 @@ struct msm_sensor_fn_t {
 	int (*sensor_match_id)(struct msm_sensor_ctrl_t *);
 };
 
+struct otp_struct{
+      uint16_t enable;
+      uint16_t flag;
+      uint16_t module_integrator_id;
+      uint16_t lens_id;
+      uint16_t rg_ratio;
+      uint16_t bg_ratio;
+      };
+
 struct msm_sensor_ctrl_t {
 	struct platform_device *pdev;
 	struct mutex *msm_sensor_mutex;

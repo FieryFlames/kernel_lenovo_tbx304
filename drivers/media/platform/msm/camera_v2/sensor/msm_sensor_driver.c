@@ -17,12 +17,15 @@
 #include "camera.h"
 #include "msm_cci.h"
 #include "msm_camera_dt_util.h"
+#include <linux/hqsysfs.h>
 
 /* Logging macro */
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
 #define SENSOR_MAX_MOUNTANGLE (360)
+
+struct otp_struct otp_ptr;
 
 static struct v4l2_file_operations msm_sensor_v4l2_subdev_fops;
 static int32_t msm_sensor_driver_platform_probe(struct platform_device *pdev);
@@ -954,6 +957,12 @@ CSID_TG:
 
 	msm_sensor_fill_sensor_info(s_ctrl, probed_info, entity_name);
 
+	if(0 == s_ctrl->id){
+		hq_regiser_hw_info(HWID_MAIN_CAM, (char *)(slave_info->sensor_name));
+	}else if(1 == s_ctrl->id){
+		hq_regiser_hw_info(HWID_SUB_CAM, (char *)(slave_info->sensor_name));
+	}
+
 	return rc;
 
 camera_power_down:
@@ -1245,6 +1254,7 @@ static int32_t msm_sensor_driver_i2c_probe(struct i2c_client *client,
 			goto FREE_S_CTRL;
 		}
 	}
+    otp_ptr.enable = 0;
 	return rc;
 FREE_S_CTRL:
 	kfree(s_ctrl);

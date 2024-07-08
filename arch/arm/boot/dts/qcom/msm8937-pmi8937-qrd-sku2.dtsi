@@ -110,12 +110,13 @@
 };
 
 &mdss_dsi0 {
-	qcom,dsi-pref-prim-pan = <&dsi_hx8394f_720p_video>;
+	qcom,dsi-pref-prim-pan = <&dsi_nt35521s_wxga_video>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
 	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
 
 	qcom,platform-te-gpio = <&tlmm 24 0>;
+	qcom,platform-enable-gpio = <&tlmm 46 0>;
 	qcom,platform-reset-gpio = <&tlmm 60 0>;
 };
 
@@ -133,8 +134,18 @@
 	status = "disabled";
 };
 
-&dsi_hx8394f_720p_video {
+&dsi_nt35521s_wxga_video {
 	qcom,esd-check-enabled;
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+//2nd LCD add
+&dsi_nt35521s_boe_wxga_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+//add by 101003082 for boe
+&dsi_jd9364_boe_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 };
 

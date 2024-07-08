@@ -30,6 +30,9 @@
 	pinctrl-1 = <&mdss_dsi_suspend>;
 
 	qcom,platform-reset-gpio = <&tlmm 60 0>;
+//Bug:A6000-651-Guofeizhi 20161206 modify begin
+	qcom,platform-enable-gpio= <&tlmm 46 0>;
+//Bug:A6000-651-Guofeizhi 20161206 modify end
 };
 
 &dsi_hx8394f_720p_video {
@@ -40,6 +43,62 @@
 &soc {
 	i2c@78b7000 {
 		status = "ok";
+		goodix_ts@5d {
+			compatible = "goodix,gt9xx";
+			reg = <0x5d>;
+			interrupt-parent = <&tlmm>;
+			interrupts = <65 0x2008>;
+			vdd_ana-supply = <&pm8917_l10>;
+			vcc_i2c-supply = <&pm8917_l6>;
+			goodix,rst-gpio = <&tlmm 64 0x0>;
+			goodix,irq-gpio = <&tlmm 65 0x0>;
+			pinctrl-names = "pmx_ts_active",
+						"pmx_ts_suspend",
+						"pmx_ts_release";
+			pinctrl-0 = <&ts_int_active &ts_reset_active>;
+			pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+			pinctrl-2 = <&ts_release>;
+			goodix,cfg-group0 = [
+			54 20 03 00 05 0A 34 12 21 C4 5A
+			05 50 3C 3A 25 00 00 1F C8 22 22
+			00 16 19 1C 14 95 35 FF 1C 1E 79
+			17 2B 65 00 03 33 1C 14 15 15 9C
+			83 03 3C 3C 2B 08 1B 14 28 94 C5
+			83 19 3C 23 04 AE 15 60 9A 18 AA
+			87 1C 88 79 20 20 6B 25 00 6B 90
+			46 78 4A 0A 80 30 18 20 12 33 A0
+			33 43 0A 62 43 05 0F 00 00 04 88
+			78 46 18 37 88 00 02 28 14 00 00
+			3C 28 1D 1C 1B 1A 19 18 17 16 15
+			14 13 12 11 10 0F 0E 0D 0C 0B 0A
+			09 08 07 06 05 04 03 02 01 00 2A
+			29 28 27 26 25 24 23 22 21 20 1F
+			1E 1D 1C 1B 19 18 17 16 15 14 13
+			12 11 10 0F 0E 0D 0C 0B 0A 09 08
+			07 06 05 04 03 02 01 00 63 01
+			];
+
+			goodix,cfg-group2 = [
+			55 20 03 00 05 0A 34 12 22 C4 5A
+			05 50 3C 3A 23 00 00 1F C8 22 22
+			00 16 19 1C 14 95 35 FF 1C 1E 7A
+			17 2C 65 09 03 33 1C 14 15 15 9C
+			83 03 3C 3C 2B 08 1B 14 28 8F C5
+			83 19 32 14 04 AE 15 60 9A 18 AA
+			87 1C 88 79 20 20 6B 25 00 6B 90
+			46 78 4A 0A 80 30 18 20 12 33 A0
+			33 43 0A 62 43 05 0F 00 00 04 88
+			78 46 18 37 88 00 02 28 1E 00 00
+			5A 46 1D 1C 1B 1A 19 18 17 16 15
+			14 13 12 11 10 0F 0E 0D 0C 0B 0A
+			09 08 07 06 05 04 03 02 01 00 2A
+			29 28 27 26 25 24 23 22 21 20 1F
+			1E 1D 1C 1B 19 18 17 16 15 14 13
+			12 11 10 0F 0E 0D 0C 0B 0A 09 08
+			07 06 05 04 03 02 01 00 30 01
+			];
+		};
+
 		focaltech@38 {
 			compatible = "focaltech,5x06";
 			reg = <0x38>;
@@ -95,25 +154,6 @@
 	qcom,cons-sync-write-delay-us = <1000>;
 };
 
-&spmi_bus {
-	qcom,pmi8937@2 {
-		qcom,leds@a100 {
-			status = "okay";
-			qcom,led_mpp_2 {
-				label = "mpp";
-				linux,name = "green";
-				linux,default-trigger = "none";
-				qcom,default-state = "off";
-				qcom,max-current = <40>;
-				qcom,current-setting = <5>;
-				qcom,id = <6>;
-				qcom,mode = "manual";
-				qcom,source-sel = <1>;
-				qcom,mode-ctrl = <0x60>;
-			};
-		};
-	};
-};
 
 &pmi_haptic {
 	status = "okay";
@@ -144,13 +184,15 @@
 / {
 	qrd_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
-		#include "batterydata-qrd-sku2-4v35-2590mah.dtsi"
+		//#include "batterydata-itech-3000mah.dtsi"  //缺少电池数据，充电功能不正常。上传一组临时的电池数据，后续等高通电池数据过来再继续优化。
+		#include "Huaqin_A600x_7000mAh_averaged_MasterSlave.dtsi"	//高通建模一供电池数据。
+                #include "Huaqin_A600x_7000mAh_averaged_SecondSlave.dtsi"	//高通建模二供电池数据。
 	};
 };
 
 &pmi8937_charger {
 	qcom,battery-data = <&qrd_batterydata>;
-	qcom,float-voltage-mv = <4350>;
+	qcom,float-voltage-mv = <4400>;
 	qcom,chg-led-sw-controls;
 	qcom,chg-led-support;
 	status = "okay";
@@ -158,10 +200,12 @@
 
 &pmi8937_fg {
 	qcom,battery-data = <&qrd_batterydata>;
-	qcom,cold-bat-decidegc = <(-100)>;
-	qcom,cool-bat-decidegc = <(-100)>;
-	qcom,hot-bat-decidegc = <550>;
-	qcom,warm-bat-decidegc = <550>;
+	qcom,cold-bat-decidegc = <(-20)>; //低于-2度是cold、0-15是cool、15-45是normal、45-52是warm、超过52是hot 。参考MBG-S-PPD-020-MBG充电设计规范V1.3
+	qcom,cool-bat-decidegc = <150>;
+	qcom,warm-bat-decidegc = <450>;
+	qcom,hot-bat-decidegc = <520>;
+	qcom,cold-hot-jeita-hysteresis = <15 45>;
 	qcom,bad-battery-detection-enable;
 	qcom,hold-soc-while-full;
+	qcom,thermal-coefficients = [DA 86 F0 50 08 3C];
 };

@@ -240,6 +240,8 @@ enum msm_camera_i2c_operation {
 	MSM_CAM_WRITE = 0,
 	MSM_CAM_POLL,
 	MSM_CAM_READ,
+	MSM_CAM_READ_GC5025,
+    MSM_CAM_READ_HI556,
 };
 
 struct msm_sensor_i2c_sync_params {

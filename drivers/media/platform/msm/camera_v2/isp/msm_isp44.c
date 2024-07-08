@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1029,6 +1029,7 @@ static void msm_vfe44_update_camif_state(struct vfe_device *vfe_dev,
 {
 	uint32_t val;
 	bool bus_en, vfe_en;
+	uint8_t j = 0;
 
 	if (update_state == NO_UPDATE)
 		return;
@@ -1056,6 +1057,14 @@ static void msm_vfe44_update_camif_state(struct vfe_device *vfe_dev,
 		msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x2F4);
 
 		vfe_dev->axi_data.src_info[VFE_PIX_0].active = 1;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_state =
+			MSM_ISP_IRQ_STATE_SOF;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask = 0;
+		for (j = 0; j < MSM_ISP_IRQ_STATE_MAX; j++) {
+			vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask |=
+				vfe_dev->hw_info->
+				intf_states_irq_mask[VFE_PIX_0][j];
+		}
 	} else if (update_state == DISABLE_CAMIF ||
 		DISABLE_CAMIF_IMMEDIATELY == update_state) {
 		msm_vfe44_config_irq(vfe_dev, 0,
@@ -1066,6 +1075,7 @@ static void msm_vfe44_update_camif_state(struct vfe_device *vfe_dev,
 		msm_camera_io_w_mb((update_state == DISABLE_CAMIF ? 0x0 : 0x6),
 				vfe_dev->vfe_base + 0x2F4);
 		vfe_dev->axi_data.src_info[VFE_PIX_0].active = 0;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].irq_mask = 0;
 	}
 }
 
@@ -1876,6 +1886,10 @@ struct msm_vfe_hardware_info vfe44_hw_info = {
 	.axi_hw_info = &msm_vfe44_axi_hw_info,
 	.stats_hw_info = &msm_vfe44_stats_hw_info,
 	.regulator_names = {"vdd"},
+	.intf_states_irq_mask = { { 0x1, 0x10, 0xC, 0x60FF8000, 0x2 },
+				{ 0x0, 0x20, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x40, 0x0, 0x0, 0x0 },
+				{ 0x0, 0x80, 0x0, 0x0, 0x0 }, }
 };
 EXPORT_SYMBOL(vfe44_hw_info);
 

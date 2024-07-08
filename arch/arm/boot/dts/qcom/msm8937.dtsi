@@ -1118,7 +1118,7 @@
 		qcom,axi-prefetch-enable;
 		qcom,enable-sdp-typec-current-limit;
 		qcom,hsusb-otg-delay-lpm;
-
+		qcom,floated-charger-enable = <1>;
 		qcom,msm-bus,name = "usb2";
 		qcom,msm-bus,num-cases = <3>;
 		qcom,msm-bus,num-paths = <1>;

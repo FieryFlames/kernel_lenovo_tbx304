@@ -35,6 +35,18 @@
 #include <linux/string_helpers.h>
 #include <linux/alarmtimer.h>
 #include <linux/qpnp/qpnp-revid.h>
+#include"couloMeter.h"  //stone add 
+
+
+///* stone add for debug start *///
+//#define DEBUG 
+#define  COULOMETER_QPNP_FG_DEBUG  
+#ifdef   COULOMETER_QPNP_FG_DEBUG 
+#define LOG_INF pr_err     
+#else
+#define LOG_INF pr_debug
+#endif
+///* stone add for debug end *///
 
 /* Register offsets */
 
@@ -330,7 +342,7 @@ module_param_named(
 	battery_type, fg_batt_type, charp, S_IRUSR | S_IWUSR
 );
 
-static int fg_sram_update_period_ms = 30000;
+static int fg_sram_update_period_ms = 3000;
 module_param_named(
 	sram_update_period_ms, fg_sram_update_period_ms, int, S_IRUSR | S_IWUSR
 );
@@ -523,6 +535,7 @@ struct fg_chip {
 	bool			battery_missing;
 	bool			power_supply_registered;
 	bool			sw_rbias_ctrl;
+	bool			use_fg_usbid;
 	bool			use_thermal_coefficients;
 	bool			esr_strict_filter;
 	bool			soc_empty;
@@ -1962,12 +1975,12 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 	schedule_delayed_work(&chip->update_sram_data, msecs_to_jiffies(0));
 }
 
-
+#if 0
 static int soc_to_setpoint(int soc)
 {
 	return DIV_ROUND_CLOSEST(soc * 255, 100);
 }
-
+#endif
 static void batt_to_setpoint_adc(int vbatt_mv, u8 *data)
 {
 	int val;
@@ -2271,6 +2284,31 @@ static int get_sram_prop_now(struct fg_chip *chip, unsigned int type)
 				fg_data[FG_DATA_BATT_ID_INFO].value);
 
 	return fg_data[type].value;
+}
+
+#define FG_USBID_CODE_BUS_ADDR		0x598
+#define PULLUP_RESISTER_KOHM		121
+#define USBIDCONV15B(code) \
+	((code) * (PULLUP_RESISTER_KOHM) / ((1 << 12) - (code)))
+static int get_sram_usbid_resistance(struct fg_chip *chip)
+{
+	u8 val[2];
+	int ret = 0, rc;
+
+	if (!chip->use_fg_usbid)
+		return 0;
+
+	rc = fg_mem_read(chip, val, FG_USBID_CODE_BUS_ADDR, 2, 0, 1);
+	if (rc) {
+		pr_err("Failed to read sram data\n");
+		return 0;
+	}
+
+	ret = (((val[1] & 0x7) << 8) | val[0]);
+	ret = USBIDCONV15B(ret);
+	pr_err("lvchen!!!ret = %d\n",ret);
+
+	return ret;
 }
 
 #define MIN_TEMP_DEGC	-300
@@ -3511,7 +3549,7 @@ static int fg_cap_learning_process_full_data(struct fg_chip *chip)
 	chip->learning_data.cc_uah = delta_cc_uah + chip->learning_data.cc_uah;
 
 	if (fg_debug_mask & FG_AGING)
-		pr_info("current cc_soc=%d cc_soc_pc=%d total_cc_uah = %lld\n",
+		pr_info("stone current cc_soc=%d cc_soc_pc=%d total_cc_uah = %lld\n",
 				cc_pc_val, cc_soc_delta_pc,
 				chip->learning_data.cc_uah);
 
@@ -4495,6 +4533,7 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_TEMP);
+		//LOG_INF("[%s,%d]+++++stone+++++++get_sram_prop_now(chip, FG_DATA_BATT_TEMP) = %d\n",__FUNCTION__,__LINE__,val->intval);//lvchen
 		break;
 	case POWER_SUPPLY_PROP_COOL_TEMP:
 		val->intval = get_prop_jeita_temp(chip, FG_MEM_SOFT_COLD);
@@ -4515,7 +4554,8 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = chip->cyc_ctr.id;
 		break;
 	case POWER_SUPPLY_PROP_RESISTANCE_ID:
-		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+		//val->intval = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+        val->intval = g_battery_id;//cm_get_ID1();
 		break;
 	case POWER_SUPPLY_PROP_UPDATE_NOW:
 		val->intval = 0;
@@ -4558,6 +4598,9 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_BATTERY_INFO_ID:
 		val->intval = chip->batt_info_id;
+		break;
+	case POWER_SUPPLY_PROP_USBID_RESISTANCE:
+		val->intval = get_sram_usbid_resistance(chip);
 		break;
 	default:
 		return -EINVAL;
@@ -7106,6 +7149,9 @@ static int fg_of_init(struct fg_chip *chip)
 			chip->batt_info_restore, fg_batt_valid_ocv,
 			fg_batt_range_pct);
 
+	chip->use_fg_usbid = of_property_read_bool(node,
+					"qcom,use-fg-usbid");
+
 	return rc;
 }
 
@@ -7885,6 +7931,8 @@ static int bcl_trim_workaround(struct fg_chip *chip)
 #define KI_COEFF_PRED_FULL_4_0_MSB	0x88
 #define KI_COEFF_PRED_FULL_4_0_LSB	0x00
 #define FG_BCL_CONFIG_OFFSET		0x3
+#define FG_ADC_CONFIG_REG_OFFSET	0x2
+#define	FG_USBID_MASK			0xff
 #define ALERT_CFG_OFFSET		3
 #define I_TERM_QUAL_BIT			BIT(1)
 #define PATCH_NEG_CURRENT_BIT		BIT(3)
@@ -7928,7 +7976,7 @@ static int fg_common_hw_init(struct fg_chip *chip)
 	}
 
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF,
-			soc_to_setpoint(settings[FG_MEM_DELTA_SOC].value),
+			settings[FG_MEM_DELTA_SOC].value,
 			settings[FG_MEM_DELTA_SOC].offset);
 	if (rc) {
 		pr_err("failed to write delta soc rc=%d\n", rc);
@@ -8558,6 +8606,10 @@ done:
 	fg_cleanup(chip);
 }
 
+
+
+
+
 static int fg_probe(struct spmi_device *spmi)
 {
 	struct device *dev = &(spmi->dev);
@@ -8566,6 +8618,8 @@ static int fg_probe(struct spmi_device *spmi)
 	struct resource *resource;
 	u8 subtype, reg;
 	int rc = 0;
+
+       LOG_INF("+++++stone+++_fg_probe\n");//stone
 
 	if (!spmi) {
 		pr_err("no valid spmi pointer\n");
@@ -8728,6 +8782,17 @@ static int fg_probe(struct spmi_device *spmi)
 		goto of_init_fail;
 	}
 
+	if (chip->use_fg_usbid) {
+		/* enable USBID detection */
+		rc = fg_mem_masked_write(chip, FG_ADC_CONFIG_REG,
+					FG_USBID_MASK, 2,
+					FG_ADC_CONFIG_REG_OFFSET);
+		if (rc) {
+			pr_err("failed to write to 0x4B8 rc=%d\n", rc);
+			return rc;
+		}
+	}
+
 	if (chip->jeita_hysteresis_support) {
 		rc = fg_init_batt_temp_state(chip);
 		if (rc) {
@@ -8795,6 +8860,8 @@ static int fg_probe(struct spmi_device *spmi)
 	memset(chip->batt_info, INT_MAX, sizeof(chip->batt_info));
 
 	schedule_work(&chip->init_work);
+
+
 
 	pr_info("FG Probe success - FG Revision DIG:%d.%d ANA:%d.%d PMIC subtype=%d\n",
 		chip->revision[DIG_MAJOR], chip->revision[DIG_MINOR],

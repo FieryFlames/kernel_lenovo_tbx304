@@ -120,9 +120,9 @@ enum msm_usb_phy_type {
 	QUSB_ULPI_PHY,
 };
 
-#define IDEV_CHG_MAX	1500
+#define IDEV_CHG_MAX	1950//1500
 #define IUNIT		100
-#define IDEV_HVDCP_CHG_MAX	1800
+#define IDEV_HVDCP_CHG_MAX	1950//1800
 
 /**
  * Different states involved in USB charger detection.
@@ -168,7 +168,7 @@ enum usb_chg_type {
 	USB_DCP_CHARGER,
 	USB_CDP_CHARGER,
 	USB_PROPRIETARY_CHARGER,
-	USB_FLOATED_CHARGER,
+	USB_UNSUPPORTED_CHARGER,
 };
 
 /**
@@ -215,6 +215,11 @@ enum usb_ctrl {
 	NUM_CTRL,
 };
 
+enum floated_chg_type {
+	FLOATING_AS_SDP = 0,
+	FLOATING_AS_DCP,
+	FLOATING_AS_INVALID,
+};
 /**
  * USB ID state
  */
@@ -310,6 +315,7 @@ struct msm_otg_platform_data {
 	bool delay_lpm_on_disconnect;
 	bool dp_manual_pullup;
 	bool enable_sec_phy;
+	enum floated_chg_type enable_floated_charger;
 	struct msm_bus_scale_pdata *bus_scale_table;
 	const char *mhl_dev_name;
 	int log2_itc;
@@ -464,6 +470,7 @@ struct msm_otg {
 	uint32_t bus_perf_client;
 	bool mhl_enabled;
 	bool host_bus_suspend;
+	bool is_ext_chg_detected;
 	bool device_bus_suspend;
 	bool bus_clks_enabled;
 	struct timer_list chg_check_timer;

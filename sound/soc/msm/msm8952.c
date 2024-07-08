@@ -57,6 +57,7 @@ enum btsco_rates {
 	RATE_16KHZ_ID,
 };
 
+int us_eu_pull_gpio = 0xFF;   //mzy_add
 static int msm8952_auxpcm_rate = 8000;
 static int msm_btsco_rate = BTSCO_RATE_8KHZ;
 static int msm_btsco_ch = 1;
@@ -93,8 +94,8 @@ static struct wcd_mbhc_config mbhc_cfg = {
 	.swap_gnd_mic = NULL,
 	.hs_ext_micbias = false,
 	.key_code[0] = KEY_MEDIA,
-	.key_code[1] = KEY_VOICECOMMAND,
-	.key_code[2] = KEY_VOLUMEUP,
+	.key_code[1] = KEY_VOLUMEUP,
+	.key_code[2] = KEY_VOLUMEDOWN,
 	.key_code[3] = KEY_VOLUMEDOWN,
 	.key_code[4] = 0,
 	.key_code[5] = 0,
@@ -240,6 +241,7 @@ int is_ext_spk_gpio_support(struct platform_device *pdev,
 			struct msm8916_asoc_mach_data *pdata)
 {
 	const char *spk_ext_pa = "qcom,msm-spk-ext-pa";
+	const char *spk_ext_pa1 = "qcom,msm-spk-ext-pa1";
 
 	pr_debug("%s:Enter\n", __func__);
 
@@ -255,36 +257,148 @@ int is_ext_spk_gpio_support(struct platform_device *pdev,
 				__func__, pdata->spk_ext_pa_gpio);
 			return -EINVAL;
 		}
+		else
+		{
+			pr_err("%s: enable speaker gpio: %d",
+				__func__, pdata->spk_ext_pa_gpio);
+			//gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+		}
 	}
+	pdata->spk_ext_pa1_gpio = of_get_named_gpio(pdev->dev.of_node,
+				spk_ext_pa1, 0);
+
+	if (pdata->spk_ext_pa1_gpio < 0) {
+		dev_dbg(&pdev->dev,
+			"%s: missing %s in dt node\n", __func__, spk_ext_pa1);
+	} else {
+		if (!gpio_is_valid(pdata->spk_ext_pa1_gpio)) {
+			pr_err("%s: Invalid external speaker 1 gpio: %d",
+				__func__, pdata->spk_ext_pa1_gpio);
+			return -EINVAL;
+		}
+		else
+		{
+			pr_err("%s: enable speaker 1 gpio: %d",
+				__func__, pdata->spk_ext_pa1_gpio);
+			//gpio_direction_output(pdata->spk_ext_pa1_gpio, 1);
+		}
+	}
+pr_err("%s:exit\n", __func__);
 	return 0;
 }
+
+//setting APM power
+//mode  1:1.2W   2:1.0W    3:0.8W   4:0.6W
+void spk_ext_pa_set_mode(struct msm8916_asoc_mach_data *pdata,int mode)
+{
+	if(mode == 1)
+	{
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	}
+	else if(mode == 2)
+	{
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	}
+	else if(mode == 3)
+	{
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	}
+	else if(mode == 4)
+	{
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	}
+	else if(mode == 5)
+	{
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 0);
+		gpio_set_value(pdata->spk_ext_pa_gpio, 1);
+		gpio_set_value(pdata->spk_ext_pa1_gpio, 1);
+	}
+
+}
+//add fix liu
 
 static int enable_spk_ext_pa(struct snd_soc_codec *codec, int enable)
 {
 	struct snd_soc_card *card = codec->component.card;
 	struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	int ret;
+	int ret=0;
 
 	if (!gpio_is_valid(pdata->spk_ext_pa_gpio)) {
 		pr_err("%s: Invalid gpio: %d\n", __func__,
 			pdata->spk_ext_pa_gpio);
 		return false;
 	}
+	if (!gpio_is_valid(pdata->spk_ext_pa1_gpio)) {
+		pr_err("%s: Invalid ext_pa1 gpio: %d\n", __func__,
+			pdata->spk_ext_pa1_gpio);
+		return false;
+	}
 
 	pr_debug("%s: %s external speaker PA\n", __func__,
 		enable ? "Enable" : "Disable");
-
+	gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+	gpio_direction_output(pdata->spk_ext_pa1_gpio, 1);
 	if (enable) {
-		ret = msm_gpioset_activate(CLIENT_WCD_INT, "ext_spk_gpio");
+		//ret = msm_gpioset_activate(CLIENT_WCD_INT, "ext_spk_gpio");
 		if (ret) {
 			pr_err("%s: gpio set cannot be de-activated %s\n",
 					__func__, "ext_spk_gpio");
 			return ret;
 		}
-		gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);
+		spk_ext_pa_set_mode(pdata,3);	// power setting 0.8W	,add by shenfawang
+		//	gpio_direction_output(pdata->spk_ext_pa_gpio, 1);
+		//	gpio_direction_output(pdata->spk_ext_pa1_gpio, 1);
+		//gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);
+		//gpio_set_value_cansleep(pdata->spk_ext_pa1_gpio, enable);
 	} else {
-		gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);
-		ret = msm_gpioset_suspend(CLIENT_WCD_INT, "ext_spk_gpio");
+			gpio_direction_output(pdata->spk_ext_pa_gpio, 0);
+			gpio_direction_output(pdata->spk_ext_pa1_gpio, 0);
+		//gpio_set_value_cansleep(pdata->spk_ext_pa_gpio, enable);
+		//gpio_set_value_cansleep(pdata->spk_ext_pa1_gpio, enable);
+		//ret = msm_gpioset_suspend(CLIENT_WCD_INT, "ext_spk_gpio");
 		if (ret) {
 			pr_err("%s: gpio set cannot be de-activated %s\n",
 					__func__, "ext_spk_gpio");
@@ -323,6 +437,8 @@ int is_us_eu_switch_gpio_support(struct platform_device *pdev,
 						__func__, "us_eu_gpio");
 			return ret;
 		}
+		us_eu_pull_gpio = pdata->us_euro_gpio;  //mzy_add
+		gpio_direction_output(us_eu_pull_gpio, 0);
 		mbhc_cfg.swap_gnd_mic = msm8952_swap_gnd_mic;
 	}
 	return 0;
@@ -1515,7 +1631,7 @@ static void *def_msm8952_wcd_mbhc_cal(void)
 		return NULL;
 
 #define S(X, Y) ((WCD_MBHC_CAL_PLUG_TYPE_PTR(msm8952_wcd_cal)->X) = (Y))
-	S(v_hs_max, 1500);
+	S(v_hs_max, 1600);
 #undef S
 #define S(X, Y) ((WCD_MBHC_CAL_BTN_DET_PTR(msm8952_wcd_cal)->X) = (Y))
 	S(num_btn, WCD_MBHC_DEF_BUTTONS);
@@ -1538,16 +1654,17 @@ static void *def_msm8952_wcd_mbhc_cal(void)
 	 * 210-290 == Button 2
 	 * 360-680 == Button 3
 	 */
-	btn_low[0] = 75;
-	btn_high[0] = 75;
-	btn_low[1] = 150;
-	btn_high[1] = 150;
-	btn_low[2] = 225;
-	btn_high[2] = 225;
-	btn_low[3] = 450;
-	btn_high[3] = 450;
-	btn_low[4] = 500;
-	btn_high[4] = 500;
+	btn_low[0] = 100;
+	btn_high[0] = 100;
+	btn_low[1] = 275;
+	btn_high[1] = 287.5;
+	btn_low[2] = 475;
+	btn_high[2] = 512.5;
+	btn_low[3] = 512.5;
+	btn_high[3] = 512.5;
+	btn_low[4] = 512.5;
+	btn_high[4] = 512.5;
+
 
 	return msm8952_wcd_cal;
 }
@@ -2651,6 +2768,8 @@ void msm8952_disable_mclk(struct work_struct *work)
 	mutex_unlock(&pdata->cdc_mclk_mutex);
 }
 
+extern  int us_en_save_flag;
+
 static bool msm8952_swap_gnd_mic(struct snd_soc_codec *codec)
 {
 	struct snd_soc_card *card = codec->component.card;
@@ -2671,6 +2790,7 @@ static bool msm8952_swap_gnd_mic(struct snd_soc_codec *codec)
 		return false;
 	}
 	gpio_set_value_cansleep(pdata->us_euro_gpio, !value);
+	us_en_save_flag=!value;
 	pr_debug("%s: swap select switch %d to %d\n", __func__, value, !value);
 
 	ret = msm_gpioset_suspend(CLIENT_WCD_INT, "us_eu_gpio");

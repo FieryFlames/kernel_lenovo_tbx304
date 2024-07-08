@@ -33,8 +33,8 @@
 
 				config {
 					pins = "gpio65";
-					drive-strength = <8>;
-					bias-pull-up;
+					drive-strength = <2>;
+					bias-disable;
 				};
 			};
 		};
@@ -49,7 +49,7 @@
 				config {
 					pins = "gpio65";
 					drive-strength = <2>;
-					bias-pull-down;
+					bias-disable;
 				};
 			};
 		};
@@ -209,25 +209,25 @@
 		pmx_mdss: pmx_mdss {
 			mdss_dsi_active: mdss_dsi_active {
 				mux {
-					pins = "gpio60", "gpio98";
+					pins = "gpio60", "gpio46";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio60", "gpio98";
+					pins = "gpio60", "gpio46";
 					drive-strength = <8>; /* 8 mA */
 					bias-disable = <0>; /* no pull */
-					output-high;
+//					output-high;
 				};
 			};
 			mdss_dsi_suspend: mdss_dsi_suspend {
 				mux {
-					pins = "gpio60", "gpio98";
+					pins = "gpio60", "gpio46";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio60", "gpio98";
+					pins = "gpio60", "gpio46";
 					drive-strength = <2>; /* 2 mA */
 					bias-pull-down; /* pull down */
 				};
@@ -605,7 +605,7 @@
 			sdc2_clk_on: sdc2_clk_on {
 				config {
 					pins = "sdc2_clk";
-					drive-strength = <16>; /* 16 MA */
+					drive-strength = <12>; /* 8mA --->12mA */
 					bias-disable; /* NO pull */
 				};
 			};
@@ -624,7 +624,7 @@
 				config {
 					pins = "sdc2_cmd";
 					bias-pull-up; /* pull up */
-					drive-strength = <10>; /* 10 MA */
+					drive-strength = <12>; /* 8mA --->12mA */
 				};
 			};
 
@@ -642,7 +642,7 @@
 				config {
 					pins = "sdc2_data";
 					bias-pull-up; /* pull up */
-					drive-strength = <10>; /* 10 MA */
+					drive-strength = <12>; /* 6mA --->12mA */
 				};
 			};
 
@@ -754,12 +754,12 @@
 		cross-conn-det {
 			cross_conn_det_act: lines_on {
 				mux {
-					pins = "gpio63";
+					pins = "gpio45";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio63";
+					pins = "gpio45";
 					drive-strength = <8>;
 					output-low;
 					bias-pull-down;
@@ -768,12 +768,12 @@
 
 			cross_conn_det_sus: lines_off {
 				mux {
-					pins = "gpio63";
+					pins = "gpio45";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio63";
+					pins = "gpio45";
 					drive-strength = <2>;
 					bias-pull-down;
 				};

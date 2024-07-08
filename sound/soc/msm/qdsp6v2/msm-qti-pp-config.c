@@ -412,9 +412,10 @@ static int msm_qti_pp_get_fm_vol_mixer(struct snd_kcontrol *kcontrol,
 static int msm_qti_pp_set_fm_vol_mixer(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
-	afe_loopback_gain(INT_FM_TX , ucontrol->value.integer.value[0]);
-
-	msm_route_fm_vol_control = ucontrol->value.integer.value[0];
+	int tmp;
+	tmp = ucontrol->value.integer.value[0]/4;
+	afe_loopback_gain(INT_FM_TX , tmp);
+	msm_route_fm_vol_control = tmp;    //ucontrol->value.integer.value[0];
 
 	return 0;
 }

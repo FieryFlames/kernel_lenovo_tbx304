@@ -54,8 +54,10 @@ static int msm_get_read_mem_size
 			return -EINVAL;
 		}
 		for (i = 0; i < eeprom_map->memory_map_size; i++) {
-			if (eeprom_map->mem_settings[i].i2c_operation ==
-				MSM_CAM_READ) {
+			if ((eeprom_map->mem_settings[i].i2c_operation == MSM_CAM_READ) ||
+			(eeprom_map->mem_settings[i].i2c_operation == MSM_CAM_READ_GC5025)||
+                (eeprom_map->mem_settings[i].i2c_operation == MSM_CAM_READ_HI556)) 
+			{
 				size += eeprom_map->mem_settings[i].reg_data;
 			}
 		}
@@ -322,11 +324,15 @@ ERROR:
   *
   * Returns success or failure
   */
+#define IIC_WRITE_WORD(addr,data)  e_ctrl->i2c_client.i2c_func_tbl->i2c_write(&(e_ctrl->i2c_client),addr, data,MSM_CAMERA_I2C_WORD_DATA);
+#define IIC_WRITE_BYTE(addr,data)  e_ctrl->i2c_client.i2c_func_tbl->i2c_write(&(e_ctrl->i2c_client),addr, data,MSM_CAMERA_I2C_BYTE_DATA);
+#define IIC_READ_BYTE(addr,data)   e_ctrl->i2c_client.i2c_func_tbl->i2c_read(&(e_ctrl->i2c_client), addr,data, MSM_CAMERA_I2C_BYTE_DATA);
 static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 	struct msm_eeprom_memory_map_array *eeprom_map_array)
 {
-	int rc =  0, i, j;
+	int rc =  0, i, j, gc;
 	uint8_t *memptr;
+	uint16_t gc_read = 0;
 	struct msm_eeprom_mem_map_t *eeprom_map;
 
 	e_ctrl->cal_data.mapdata = NULL;
@@ -406,16 +412,333 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 				memptr += eeprom_map->mem_settings[i].reg_data;
 			}
 			break;
+			case MSM_CAM_READ_GC5025: { /*add for gc5025 & gc5025a*/
+				e_ctrl->i2c_client.addr_type = 1;
+				if(1 == eeprom_map->mem_settings[i].reg_data)//read a byte
+				{
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd4,
+ 						0x80 | ((eeprom_map->mem_settings[i].reg_addr >> 8) & 0xff),
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd5,
+ 						eeprom_map->mem_settings[i].reg_addr & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x20,
+						eeprom_map->mem_settings[i].data_type);
+					msleep(eeprom_map->mem_settings[i].delay);
+					rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+						&(e_ctrl->i2c_client), 0xd7, &gc_read,
+						eeprom_map->mem_settings[i].data_type);
+					*memptr = (uint8_t)gc_read;//read a byte
+					memptr++;
+				}
+				else {//read N bytes
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd4,
+ 						0x80 | ((eeprom_map->mem_settings[i].reg_addr >> 8) & 0xff),
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd5,
+ 						eeprom_map->mem_settings[i].reg_addr & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x20,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x88,
+						eeprom_map->mem_settings[i].data_type);
+					
+					msleep(eeprom_map->mem_settings[i].delay);
+					
+					for(gc = 0; gc < eeprom_map->mem_settings[i].reg_data; gc++)//read N(reg_data) bytes 
+					{
+						msleep(eeprom_map->mem_settings[i].delay);
+						rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+							&(e_ctrl->i2c_client), 0xd7, &gc_read,
+							eeprom_map->mem_settings[i].data_type);
+						if (rc < 0) {
+							pr_err("%s: read failed\n",
+								__func__);
+							goto clean_up;
+						}
+						*memptr = (uint8_t)gc_read;
+						memptr++;
+					}
+				}
+			}
+			break;
+            case MSM_CAM_READ_HI556: 
+            { /*stoneadd for hi556*/
+                pr_err("stoneadd MSM_CAM_READ_HI556 Enter\n");
+				    e_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+                    //fucking init_setting
+                    IIC_WRITE_WORD(0x0a00, 0x0000);
+                    IIC_WRITE_WORD(0x0e00, 0x0102);
+                    IIC_WRITE_WORD(0x0e02, 0x0102);
+                    IIC_WRITE_WORD(0x0e0c, 0x0100);
+                    IIC_WRITE_WORD(0x2000, 0x7400);
+                    IIC_WRITE_WORD(0x2002, 0x001c);
+                    IIC_WRITE_WORD(0x2004, 0x0242);
+                    IIC_WRITE_WORD(0x2006, 0x0942);
+                    IIC_WRITE_WORD(0x2008, 0x7007);
+                    IIC_WRITE_WORD(0x200a, 0x0fd9);
+                    IIC_WRITE_WORD(0x200c, 0x0259);
+                    IIC_WRITE_WORD(0x200e, 0x7008);
+                    IIC_WRITE_WORD(0x2010, 0x160e);
+                    IIC_WRITE_WORD(0x2012, 0x0047);
+                    IIC_WRITE_WORD(0x2014, 0x2118);
+                    IIC_WRITE_WORD(0x2016, 0x0041);
+                    IIC_WRITE_WORD(0x2018, 0x00d8);
+                    IIC_WRITE_WORD(0x201a, 0x0145);
+                    IIC_WRITE_WORD(0x201c, 0x0006);
+                    IIC_WRITE_WORD(0x201e, 0x0181);
+                    IIC_WRITE_WORD(0x2020, 0x13cc);
+                    IIC_WRITE_WORD(0x2022, 0x2057);
+                    IIC_WRITE_WORD(0x2024, 0x7001);
+                    IIC_WRITE_WORD(0x2026, 0x0fca);
+                    IIC_WRITE_WORD(0x2028, 0x00cb);
+                    IIC_WRITE_WORD(0x202a, 0x009f);
+                    IIC_WRITE_WORD(0x202c, 0x7002);
+                    IIC_WRITE_WORD(0x202e, 0x13cc);
+                    IIC_WRITE_WORD(0x2030, 0x019b);
+                    IIC_WRITE_WORD(0x2032, 0x014d);
+                    IIC_WRITE_WORD(0x2034, 0x2987);
+                    IIC_WRITE_WORD(0x2036, 0x2766);
+                    IIC_WRITE_WORD(0x2038, 0x0020);
+                    IIC_WRITE_WORD(0x203a, 0x2060);
+                    IIC_WRITE_WORD(0x203c, 0x0e5d);
+                    IIC_WRITE_WORD(0x203e, 0x181d);
+                    IIC_WRITE_WORD(0x2040, 0x2066);
+                    IIC_WRITE_WORD(0x2042, 0x20c4);
+                    IIC_WRITE_WORD(0x2044, 0x5000);
+                    IIC_WRITE_WORD(0x2046, 0x0005);
+                    IIC_WRITE_WORD(0x2048, 0x0000);
+                    IIC_WRITE_WORD(0x204a, 0x01db);
+                    IIC_WRITE_WORD(0x204c, 0x025a);
+                    IIC_WRITE_WORD(0x204e, 0x00c0);
+                    IIC_WRITE_WORD(0x2050, 0x0005);
+                    IIC_WRITE_WORD(0x2052, 0x0006);
+                    IIC_WRITE_WORD(0x2054, 0x0ad9);
+                    IIC_WRITE_WORD(0x2056, 0x0259);
+                    IIC_WRITE_WORD(0x2058, 0x0618);
+                    IIC_WRITE_WORD(0x205a, 0x0258);
+                    IIC_WRITE_WORD(0x205c, 0x2266);
+                    IIC_WRITE_WORD(0x205e, 0x20c8);
+                    IIC_WRITE_WORD(0x2060, 0x2060);
+                    IIC_WRITE_WORD(0x2062, 0x707b);
+                    IIC_WRITE_WORD(0x2064, 0x0fdd);
+                    IIC_WRITE_WORD(0x2066, 0x81b8);
+                    IIC_WRITE_WORD(0x2068, 0x5040);
+                    IIC_WRITE_WORD(0x206a, 0x0020);
+                    IIC_WRITE_WORD(0x206c, 0x5060);
+                    IIC_WRITE_WORD(0x206e, 0x3143);
+                    IIC_WRITE_WORD(0x2070, 0x5081);
+                    IIC_WRITE_WORD(0x2072, 0x025c);
+                    IIC_WRITE_WORD(0x2074, 0x7800);
+                    IIC_WRITE_WORD(0x2076, 0x7400);
+                    IIC_WRITE_WORD(0x2078, 0x001c);
+                    IIC_WRITE_WORD(0x207a, 0x0242);
+                    IIC_WRITE_WORD(0x207c, 0x0942);
+                    IIC_WRITE_WORD(0x207e, 0x0bd9);
+                    IIC_WRITE_WORD(0x2080, 0x0259);
+                    IIC_WRITE_WORD(0x2082, 0x7008);
+                    IIC_WRITE_WORD(0x2084, 0x160e);
+                    IIC_WRITE_WORD(0x2086, 0x0047);
+                    IIC_WRITE_WORD(0x2088, 0x2118);
+                    IIC_WRITE_WORD(0x208a, 0x0041);
+                    IIC_WRITE_WORD(0x208c, 0x00d8);
+                    IIC_WRITE_WORD(0x208e, 0x0145);
+                    IIC_WRITE_WORD(0x2090, 0x0006);
+                    IIC_WRITE_WORD(0x2092, 0x0181);
+                    IIC_WRITE_WORD(0x2094, 0x13cc);
+                    IIC_WRITE_WORD(0x2096, 0x2057);
+                    IIC_WRITE_WORD(0x2098, 0x7001);
+                    IIC_WRITE_WORD(0x209a, 0x0fca);
+                    IIC_WRITE_WORD(0x209c, 0x00cb);
+                    IIC_WRITE_WORD(0x209e, 0x009f);
+                    IIC_WRITE_WORD(0x20a0, 0x7002);
+                    IIC_WRITE_WORD(0x20a2, 0x13cc);
+                    IIC_WRITE_WORD(0x20a4, 0x019b);
+                    IIC_WRITE_WORD(0x20a6, 0x014d);
+                    IIC_WRITE_WORD(0x20a8, 0x2987);
+                    IIC_WRITE_WORD(0x20aa, 0x2766);
+                    IIC_WRITE_WORD(0x20ac, 0x0020);
+                    IIC_WRITE_WORD(0x20ae, 0x2060);
+                    IIC_WRITE_WORD(0x20b0, 0x0e5d);
+                    IIC_WRITE_WORD(0x20b2, 0x181d);
+                    IIC_WRITE_WORD(0x20b4, 0x2066);
+                    IIC_WRITE_WORD(0x20b6, 0x20c4);
+                    IIC_WRITE_WORD(0x20b8, 0x50a0);
+                    IIC_WRITE_WORD(0x20ba, 0x0005);
+                    IIC_WRITE_WORD(0x20bc, 0x0000);
+                    IIC_WRITE_WORD(0x20be, 0x01db);
+                    IIC_WRITE_WORD(0x20c0, 0x025a);
+                    IIC_WRITE_WORD(0x20c2, 0x00c0);
+                    IIC_WRITE_WORD(0x20c4, 0x0005);
+                    IIC_WRITE_WORD(0x20c6, 0x0006);
+                    IIC_WRITE_WORD(0x20c8, 0x0ad9);
+                    IIC_WRITE_WORD(0x20ca, 0x0259);
+                    IIC_WRITE_WORD(0x20cc, 0x0618);
+                    IIC_WRITE_WORD(0x20ce, 0x0258);
+                    IIC_WRITE_WORD(0x20d0, 0x2266);
+                    IIC_WRITE_WORD(0x20d2, 0x20c8);
+                    IIC_WRITE_WORD(0x20d4, 0x2060);
+                    IIC_WRITE_WORD(0x20d6, 0x707b);
+                    IIC_WRITE_WORD(0x20d8, 0x0fdd);
+                    IIC_WRITE_WORD(0x20da, 0x86b8);
+                    IIC_WRITE_WORD(0x20dc, 0x50e0);
+                    IIC_WRITE_WORD(0x20de, 0x0020);
+                    IIC_WRITE_WORD(0x20e0, 0x5100);
+                    IIC_WRITE_WORD(0x20e2, 0x3143);
+                    IIC_WRITE_WORD(0x20e4, 0x5121);
+                    IIC_WRITE_WORD(0x20e6, 0x7800);
+                    IIC_WRITE_WORD(0x20e8, 0x3140);
+                    IIC_WRITE_WORD(0x20ea, 0x01c4);
+                    IIC_WRITE_WORD(0x20ec, 0x01c1);
+                    IIC_WRITE_WORD(0x20ee, 0x01c0);
+                    IIC_WRITE_WORD(0x20f0, 0x01c4);
+                    IIC_WRITE_WORD(0x20f2, 0x2700);
+                    IIC_WRITE_WORD(0x20f4, 0x3d40);
+                    IIC_WRITE_WORD(0x20f6, 0x7800);
+                    IIC_WRITE_WORD(0x20f8, 0xffff);
+                    IIC_WRITE_WORD(0x27fe, 0xe000);
+                    IIC_WRITE_WORD(0x3000, 0x60f8);
+                    IIC_WRITE_WORD(0x3002, 0x187f);
+                    IIC_WRITE_WORD(0x3004, 0x7060);
+                    IIC_WRITE_WORD(0x3006, 0x0114);
+                    IIC_WRITE_WORD(0x3008, 0x60b0);
+                    IIC_WRITE_WORD(0x300a, 0x1473);
+                    IIC_WRITE_WORD(0x300c, 0x0013);
+                    IIC_WRITE_WORD(0x300e, 0x140f);
+                    IIC_WRITE_WORD(0x3010, 0x0040);
+                    IIC_WRITE_WORD(0x3012, 0x100f);
+                    IIC_WRITE_WORD(0x3014, 0x60f8);
+                    IIC_WRITE_WORD(0x3016, 0x187f);
+                    IIC_WRITE_WORD(0x3018, 0x7060);
+                    IIC_WRITE_WORD(0x301a, 0x0114);
+                    IIC_WRITE_WORD(0x301c, 0x60b0);
+                    IIC_WRITE_WORD(0x301e, 0x1473);
+                    IIC_WRITE_WORD(0x3020, 0x0013);
+                    IIC_WRITE_WORD(0x3022, 0x140f);
+                    IIC_WRITE_WORD(0x3024, 0x0040);
+                    IIC_WRITE_WORD(0x3026, 0x000f);
+                    IIC_WRITE_WORD(0x0b00, 0x0000);
+                    IIC_WRITE_WORD(0x0b02, 0x0045);
+                    IIC_WRITE_WORD(0x0b04, 0xb405);
+                    IIC_WRITE_WORD(0x0b06, 0xc403);
+                    IIC_WRITE_WORD(0x0b08, 0x0081);
+                    IIC_WRITE_WORD(0x0b0a, 0x8252);
+                    IIC_WRITE_WORD(0x0b0c, 0xf814);
+                    IIC_WRITE_WORD(0x0b0e, 0xc618);
+                    IIC_WRITE_WORD(0x0b10, 0xa828);
+                    IIC_WRITE_WORD(0x0b12, 0x004c);
+                    IIC_WRITE_WORD(0x0b14, 0x4068);
+                    IIC_WRITE_WORD(0x0b16, 0x0000);
+                    IIC_WRITE_WORD(0x0f30, 0x6e25);
+                    IIC_WRITE_WORD(0x0f32, 0x7067);
+                    IIC_WRITE_WORD(0x0954, 0x0009);
+                    IIC_WRITE_WORD(0x0956, 0x1100);
+                    IIC_WRITE_WORD(0x0958, 0xcc80);
+                    IIC_WRITE_WORD(0x095a, 0x0000);
+                    IIC_WRITE_WORD(0x0c00, 0x1110);
+                    IIC_WRITE_WORD(0x0c02, 0x0011);
+                    IIC_WRITE_WORD(0x0c04, 0x0000);
+                    IIC_WRITE_WORD(0x0c06, 0x0200);
+                    IIC_WRITE_WORD(0x0c10, 0x0040);
+                    IIC_WRITE_WORD(0x0c12, 0x0040);
+                    IIC_WRITE_WORD(0x0c14, 0x0040);
+                    IIC_WRITE_WORD(0x0c16, 0x0040);
+                    IIC_WRITE_WORD(0x0a10, 0x4000);
+                    IIC_WRITE_WORD(0x3068, 0xf800);
+                    IIC_WRITE_WORD(0x306a, 0xf876);
+                    IIC_WRITE_WORD(0x006c, 0x0000);
+                    IIC_WRITE_WORD(0x005e, 0x0200);
+                    IIC_WRITE_WORD(0x000e, 0x0200);
+                    IIC_WRITE_WORD(0x0e0a, 0x0001);
+                    IIC_WRITE_WORD(0x004a, 0x0100);
+                    IIC_WRITE_WORD(0x004c, 0x0000);
+                    IIC_WRITE_WORD(0x004e, 0x0100);
+                    IIC_WRITE_WORD(0x000c, 0x0022);
+                    IIC_WRITE_WORD(0x0008, 0x0b00);
+                    IIC_WRITE_WORD(0x005a, 0x0202);
+                    IIC_WRITE_WORD(0x0012, 0x000e);
+                    IIC_WRITE_WORD(0x0018, 0x0a31);
+                    IIC_WRITE_WORD(0x0022, 0x0008);
+                    IIC_WRITE_WORD(0x0028, 0x0017);
+                    IIC_WRITE_WORD(0x0024, 0x0028);
+                    IIC_WRITE_WORD(0x002a, 0x002d);
+                    IIC_WRITE_WORD(0x0026, 0x0030);
+                    IIC_WRITE_WORD(0x002c, 0x07c7);
+                    IIC_WRITE_WORD(0x002e, 0x1111);
+                    IIC_WRITE_WORD(0x0030, 0x1111);
+                    IIC_WRITE_WORD(0x0032, 0x1111);
+                    IIC_WRITE_WORD(0x0006, 0x07bc);
+                    IIC_WRITE_WORD(0x0a22, 0x0000);
+                    IIC_WRITE_WORD(0x0a12, 0x0a20);
+                    IIC_WRITE_WORD(0x0a14, 0x0798);
+                    IIC_WRITE_WORD(0x003e, 0x0000);
+                    IIC_WRITE_WORD(0x0074, 0x080e);
+                    IIC_WRITE_WORD(0x0070, 0x0407);
+                    IIC_WRITE_WORD(0x0002, 0x0000);
+                    IIC_WRITE_WORD(0x0a02, 0x0100);
+                    IIC_WRITE_WORD(0x0a24, 0x0100);
+                    IIC_WRITE_WORD(0x0046, 0x0000);
+                    IIC_WRITE_WORD(0x0076, 0x0000);
+                    IIC_WRITE_WORD(0x0060, 0x0000);
+                    IIC_WRITE_WORD(0x0062, 0x0530);
+                    IIC_WRITE_WORD(0x0064, 0x0500);
+                    IIC_WRITE_WORD(0x0066, 0x0530);
+                    IIC_WRITE_WORD(0x0068, 0x0500);
+                    IIC_WRITE_WORD(0x0122, 0x0300);
+                    IIC_WRITE_WORD(0x015a, 0xff08);
+                    IIC_WRITE_WORD(0x0804, 0x0200);
+                    IIC_WRITE_WORD(0x005c, 0x0102);
+                    IIC_WRITE_WORD(0x0a1a, 0x0800);
+
+
+
+                    //otp reading prepare setting
+                    IIC_WRITE_BYTE(0x0a02, 0x01); //Fast sleep on
+                    IIC_WRITE_BYTE(0x0a00, 0x00); // stand by on
+                    msleep(10);
+                    IIC_WRITE_BYTE(0x0f02, 0x00); // pll disable
+                    IIC_WRITE_BYTE(0x011a, 0x01); // CP TRIM_H
+                    IIC_WRITE_BYTE(0x011b, 0x09); // IPGM TRIM_H
+                    IIC_WRITE_BYTE(0x0d04, 0x01); // Fsync(OTP busy) Output Enable
+                    IIC_WRITE_BYTE(0x0d00, 0x07); // Fsync(OTP busy) Output Drivability
+                    IIC_WRITE_BYTE(0x003e, 0x10); // OTP R/W mode
+                    IIC_WRITE_BYTE(0x0a00, 0x01); // stand by off
+                    //start reading N Bytes
+                    IIC_WRITE_BYTE(0x10a,((0x0401 >> 8) & 0xff));
+                    IIC_WRITE_BYTE(0x10b,0x0401& 0xff);
+                    IIC_WRITE_BYTE(0x102, 0x01);
+
+					for(gc = 0; gc < eeprom_map->mem_settings[i].reg_data; gc++)//read N(reg_data) bytes 
+					{
+                        rc = IIC_READ_BYTE(0x108, &gc_read);
+                        //pr_err("stoneadd mo_data[%d] = 0x%X\n", i,(uint8_t)gc_read);
+						if (rc < 0) 
+                        {
+							pr_err("%s: read failed\n",__func__);
+							goto clean_up;
+						}
+						*memptr = (uint8_t)gc_read;
+						memptr++;
+					}
+				}
+			break;
 			default:
-				pr_err("%s: %d Invalid i2c operation LC:%d\n",
-					__func__, __LINE__, i);
+				pr_err("%s: %d Invalid i2c operation LC:%d, op: %d\n",
+					__func__, __LINE__, i, eeprom_map->mem_settings[i].i2c_operation);
 				return -EINVAL;
 			}
 		}
 	}
 	memptr = e_ctrl->cal_data.mapdata;
 	for (i = 0; i < e_ctrl->cal_data.num_data; i++)
-		CDBG("memory_data[%d] = 0x%X\n", i, memptr[i]);
+		pr_err("stoneadd memory_data[%d] = 0x%X\n", i, memptr[i]);
 	return rc;
 
 clean_up:
@@ -1674,6 +1997,16 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 		e_ctrl->userspace_probe = 1;
 	}
 
+    //stoneadd begin
+    else if (strcmp(eb_info->eeprom_name,"gc5025_otp")==0) {
+        pr_err("%s stoneadd now find gc5025_otp_eeprom  %d\n", __func__, __LINE__);
+        e_ctrl->userspace_probe = 1;
+    }
+    else if (strcmp(eb_info->eeprom_name,"holitech_hi556")==0) {
+        pr_err("%s stoneadd now find holitech_hi556_eeprom  %d\n", __func__, __LINE__);
+        e_ctrl->userspace_probe = 1;
+    }
+    //stoneadd end
 	rc = msm_eeprom_get_dt_data(e_ctrl);
 	if (rc < 0)
 		goto board_free;
@@ -1722,8 +2055,7 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 			goto power_down;
 		}
 		for (j = 0; j < e_ctrl->cal_data.num_data; j++)
-			CDBG("memory_data[%d] = 0x%X\n", j,
-				e_ctrl->cal_data.mapdata[j]);
+			pr_err("stoneadd memory_data[%d] = 0x%X\n", j,e_ctrl->cal_data.mapdata[j]);
 
 		e_ctrl->is_supported |= msm_eeprom_match_crc(&e_ctrl->cal_data);
 
